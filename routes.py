@@ -1,20 +1,14 @@
-import asyncio
-
+import asyncio, os
 from models import list_models
-
 from experiments import export_experiment_data, metrics_predict_logic, save_movement, HandlerResult
-
 from logger import logger
-
 from render import render_image_raw, save_render_bytes
-
 from models import get_model, ensure_started
-
 from concurrent.futures import ThreadPoolExecutor
-
 from encoding import encode_jpeg, encode_png
+from statics import EXPERIMENTS_DIR, DASH_DIR
+from dash_streamer import STREAMER
 
-from statics import EXPERIMENTS_DIR
 
 RENDER_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
@@ -28,6 +22,12 @@ async def models_page(request: Request):
 async def player_page(request: Request):
     await ensure_started()
     return FileResponse("templates/player.html")
+
+async def player_dash_page(request: Request):
+    await ensure_started()
+    p = Path("templates/player_dash.html")
+    logger.info("CWD=%s exists=%s abs=%s", os.getcwd(), p.exists(), p.resolve())
+    return FileResponse("templates/player_dash.html")
 
 async def get_list_of_all_available_models(request: Request):
     await ensure_started()
@@ -48,8 +48,8 @@ async def render_handler(request: Request):
     fy = float(data.get("fy", 800.0))
     cx = float(data.get("cx", 400.0))
     cy = float(data.get("cy", 300.0))
-    width = float(data.get("width", 800))
-    height = float(data.get("height", 600))
+    width = int(data.get("width", 800))
+    height = int(data.get("height", 600))
     profile = int(data.get("profile", 0))
     model = get_model(data.get("modelId"))
 
@@ -249,3 +249,66 @@ def load_movements(path: str | Path) -> list[dict[str, Any]]:
 
     print(items)
     return items
+
+
+# POST /control
+async def control(request: Request):
+    await ensure_started()
+    body = await request.json()
+
+    # Start streamer lazily on first control message
+    await STREAMER.ensure_started()
+
+    # Accept camera + model updates
+    await STREAMER.update_state(
+        modelId=str(body.get("modelId", "")),
+        angle=float(body.get("angle", 180)),
+        elevation=float(body.get("elevation", 0)),
+        x=float(body.get("x", 0)),
+        y=float(body.get("y", 0)),
+        z=float(body.get("z", 5.0)),
+        fx=float(body.get("fx", 1300.0)),
+        fy=float(body.get("fy", 800.0)),
+        cx=float(body.get("cx", 400.0)),
+        cy=float(body.get("cy", 300.0)),
+    )
+
+    return JSONResponse({
+        "ok": True,
+        "running": STREAMER.is_running(),
+        "mpd": "/static/dash/live.mpd",
+    })
+
+# GET /dash/status
+async def dash_status(request: Request):
+    await ensure_started()
+    return JSONResponse({
+        "running": STREAMER.is_running(),
+        "mpdExists": STREAMER.mpd_path.exists(),
+        "mpd": "/static/dash/live.mpd",
+    })
+
+# POST /dash/stop
+async def dash_stop(request: Request):
+    await ensure_started()
+    await STREAMER.stop()
+    return JSONResponse({"ok": True})
+
+
+async def dash_file(request: Request):
+    rel = request.path_params["path"]
+
+    # Prevent path traversal
+    base = os.path.realpath(DASH_DIR)
+    p = os.path.realpath(os.path.join(DASH_DIR, rel))
+    if not (p == base or p.startswith(base + os.sep)):
+        return PlainTextResponse("bad path", status_code=400)
+
+    if not os.path.isfile(p):
+        return PlainTextResponse("not found", status_code=404)
+
+    resp = FileResponse(p)
+    if p.endswith(".mpd"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+    return resp

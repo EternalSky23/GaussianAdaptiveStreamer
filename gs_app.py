@@ -20,7 +20,6 @@ from starlette.staticfiles import StaticFiles
 from statics import STATIC_DIR
 import routes
 
-    
 starlette = Starlette(
     routes=[
         Route("/", routes.render_handler, methods=["GET"]),
@@ -33,6 +32,13 @@ starlette = Starlette(
         Route("/loadModel", routes.load_model, methods=["POST"]),
         Route("/movement", routes.save_movements, methods=["POST"]),
         Route("/saveImages", routes.save_images, methods=["POST"]),
+        
+        Route("/control", routes.control, methods=["POST"]),
+        Route("/dash/status", routes.dash_status, methods=["GET"]),
+        Route("/dash/stop", routes.dash_stop, methods=["POST"]),
+        Route("/player-dash", routes.player_dash_page, methods=["GET"]),
+        Route("/dash/{path:path}", routes.dash_file, methods=["GET"]),
+        
         Mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     ]
 )
@@ -40,6 +46,5 @@ starlette = Starlette(
 # the callable the aioquic server imports
 async def app(scope, receive, send):
     await starlette(scope, receive, send)
-    
     
 

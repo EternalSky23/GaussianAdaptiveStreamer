@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>3DGS DASH Player</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    video { width: 100%; max-width: 1280px; background: #000; }
+    .row { margin: 8px 0; }
+    input { width: 420px; }
+  </style>
+</head>
+<body>
+  <h2>3DGS DASH Player</h2>
+
+  <div class="row">
+    Model ID:
+    <input id="modelId" placeholder="e.g. room" />
+    <button id="start">Start</button>
+  </div>
+
+  <video id="video" autoplay muted playsinline controls></video>
+
+  <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const mpdUrl = `/dash/live.mpd?ts=${Date.now()}`;
+
+    const player = dashjs.MediaPlayer().create();
+
+    player.updateSettings({
+      streaming: {
+        lowLatencyEnabled: true,
+        liveCatchup: {
+          enabled: true
+        }
+      }
+    });
+
+    function sendControl(state) {
+      return fetch('/control', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(state),
+      });
+
+    }
+
+    const cam = {
+      modelId: "",
+      angle: 180,
+      elevation: 0,
+      x: 0, y: 0, z: 5,
+      fx: 1300, fy: 800,
+      cx: 400, cy: 300,
+    };
+
+    document.getElementById('start').onclick = async () => {
+      cam.modelId = document.getElementById('modelId').value.trim();
+      if (!cam.modelId) return;
+
+      await sendControl(cam);
+
+      player.initialize(video, mpdUrl, true);
+    };
+
+    window.addEventListener('keydown', async (e) => {
+      if (!cam.modelId) return;
+
+      const rotStep = 2.0;
+      const posStep = 0.1;
+
+      if (e.key === 'ArrowLeft') cam.angle -= rotStep;
+      else if (e.key === 'ArrowRight') cam.angle += rotStep;
+      else if (e.key === 'ArrowUp') cam.elevation += rotStep;
+      else if (e.key === 'ArrowDown') cam.elevation -= rotStep;
+      else if (e.key.toLowerCase() === 'w') cam.z -= posStep;
+      else if (e.key.toLowerCase() === 's') cam.z += posStep;
+
+      await sendControl(cam);
+    });
+  </script>
+</body>
+</html>

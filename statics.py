@@ -10,6 +10,7 @@ TEMPLATES_DIR = os.path.join(ROOT, "templates")
 LOG_DIR = os.path.join(ROOT, "logs")
 STATIC_DIR = os.path.join(ROOT, "static")
 MODELS_DIR = os.path.join(STATIC_DIR, "models")
+DASH_DIR = os.path.join(STATIC_DIR, "dash")
 
 os.makedirs(CAPTURES_DIR, exist_ok=True)
 os.makedirs(EXPERIMENTS_DIR, exist_ok=True)
