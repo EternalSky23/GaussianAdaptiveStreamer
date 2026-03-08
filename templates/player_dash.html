@@ -19,66 +19,205 @@
     <button id="start">Start</button>
   </div>
 
-  <video id="video" autoplay muted playsinline controls></video>
+  <video id="video" autoplay muted playsinline></video>
 
   <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
 
   <script>
     const video = document.getElementById('video');
-    const mpdUrl = `/dash/live.mpd?ts=${Date.now()}`;
-
-    const player = dashjs.MediaPlayer().create();
-
-    player.updateSettings({
-      streaming: {
-        lowLatencyEnabled: true,
-        liveCatchup: {
-          enabled: true
-        }
-      }
-    });
-
-    function sendControl(state) {
-      return fetch('/control', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(state),
-      });
-
-    }
+    let player = null;
+    let playerStarted = false;
 
     const cam = {
       modelId: "",
       angle: 180,
       elevation: 0,
-      x: 0, y: 0, z: 5,
-      fx: 1300, fy: 800,
-      cx: 400, cy: 300,
+      x: 0,
+      y: 0,
+      z: 5,
+      fx: 1300,
+      fy: 800,
+      cx: 400,
+      cy: 300,
     };
+
+    const pressed = new Set();
+    let sending = false;
+    let dirty = false;
+    let startedControlLoop = false;
+
+    const SEND_HZ = 30;
+    const SEND_MS = 1000 / SEND_HZ;
+
+    function createPlayer() {
+      const p = dashjs.MediaPlayer().create();
+
+      p.updateSettings({
+        streaming: {
+          delay: {
+            liveDelay: 0.1,
+            liveDelayFragmentCount: NaN,
+            useSuggestedPresentationDelay: false
+          },
+          liveCatchup: {
+            enabled: true,
+            maxDrift: 0,
+            playbackRate: {
+              min: -0.05,
+              max: 1.0
+            }
+          },
+          abr: {
+            autoSwitchBitrate: {
+              video: false
+            }
+          },
+          buffer: {
+            fastSwitchEnabled: true
+          }
+        }
+      });
+
+      return p;
+    }
+
+    async function sendControlSnapshot() {
+      if (sending) {
+        dirty = true;
+        return;
+      }
+
+      sending = true;
+      try {
+        do {
+          dirty = false;
+          await fetch('/control', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(cam),
+            cache: 'no-store'
+          });
+        } while (dirty);
+      } catch (err) {
+        console.error('control send failed', err);
+      } finally {
+        sending = false;
+      }
+    }
+
+    function updateCameraFromKeys(dt) {
+      if (!cam.modelId) return false;
+
+      const rotSpeed = 120;   // degrees/sec
+      const moveSpeed = 3.0;  // units/sec
+
+      let changed = false;
+
+      if (pressed.has('arrowleft')) {
+        cam.angle -= rotSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('arrowright')) {
+        cam.angle += rotSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('arrowup')) {
+        cam.elevation += rotSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('arrowdown')) {
+        cam.elevation -= rotSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('w')) {
+        cam.z -= moveSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('s')) {
+        cam.z += moveSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('a')) {
+        cam.x -= moveSpeed * dt;
+        changed = true;
+      }
+      if (pressed.has('d')) {
+        cam.x += moveSpeed * dt;
+        changed = true;
+      }
+
+      return changed;
+    }
+
+    function startControlLoop() {
+      if (startedControlLoop) return;
+      startedControlLoop = true;
+
+      let prev = performance.now();
+      let lastSent = 0;
+
+      function tick(now) {
+        const dt = Math.min(0.05, (now - prev) / 1000);
+        prev = now;
+
+        const changed = updateCameraFromKeys(dt);
+
+        if (changed && (now - lastSent >= SEND_MS)) {
+          lastSent = now;
+          sendControlSnapshot();
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
+    }
 
     document.getElementById('start').onclick = async () => {
       cam.modelId = document.getElementById('modelId').value.trim();
       if (!cam.modelId) return;
 
-      await sendControl(cam);
+      await sendControlSnapshot();
 
+      if (player) {
+        player.reset();
+      }
+
+      player = createPlayer();
+
+      const mpdUrl = `/dash/live.mpd?ts=${Date.now()}`;
       player.initialize(video, mpdUrl, true);
+
+      playerStarted = true;
+      startControlLoop();
     };
 
-    window.addEventListener('keydown', async (e) => {
+    window.addEventListener('keydown', (e) => {
       if (!cam.modelId) return;
 
-      const rotStep = 2.0;
-      const posStep = 0.1;
+      const key = e.key.toLowerCase();
+      if (
+        key === 'arrowleft' ||
+        key === 'arrowright' ||
+        key === 'arrowup' ||
+        key === 'arrowdown' ||
+        key === 'w' ||
+        key === 'a' ||
+        key === 's' ||
+        key === 'd'
+      ) {
+        e.preventDefault();
+        pressed.add(key);
+      }
+    });
 
-      if (e.key === 'ArrowLeft') cam.angle -= rotStep;
-      else if (e.key === 'ArrowRight') cam.angle += rotStep;
-      else if (e.key === 'ArrowUp') cam.elevation += rotStep;
-      else if (e.key === 'ArrowDown') cam.elevation -= rotStep;
-      else if (e.key.toLowerCase() === 'w') cam.z -= posStep;
-      else if (e.key.toLowerCase() === 's') cam.z += posStep;
+    window.addEventListener('keyup', (e) => {
+      const key = e.key.toLowerCase();
+      pressed.delete(key);
+    });
 
-      await sendControl(cam);
+    window.addEventListener('blur', () => {
+      pressed.clear();
     });
   </script>
 </body>

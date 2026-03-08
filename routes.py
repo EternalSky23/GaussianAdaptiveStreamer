@@ -276,7 +276,7 @@ async def control(request: Request):
     return JSONResponse({
         "ok": True,
         "running": STREAMER.is_running(),
-        "mpd": "/static/dash/live.mpd",
+        "mpd": "/dash/live.mpd",
     })
 
 # GET /dash/status
@@ -311,4 +311,6 @@ async def dash_file(request: Request):
     if p.endswith(".mpd"):
         resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp.headers["Pragma"] = "no-cache"
+    elif p.endswith(".m4s") or p.endswith(".mp4"):
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
