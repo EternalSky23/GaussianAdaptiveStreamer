@@ -84,7 +84,7 @@ class DashStreamer:
 
             self.out_dir.mkdir(parents=True, exist_ok=True)
 
-            gop = max(1, self.fps // 2)
+            gop = 8
 
             ffmpeg = shutil.which(FFMPEG) if os.path.sep not in FFMPEG else FFMPEG
             if not ffmpeg or not Path(ffmpeg).exists():
@@ -125,17 +125,17 @@ class DashStreamer:
             for i, r in enumerate(self.reps):
                 cmd += [
                     "-map", f"[v{i}o]",
-                    "-c:v", "libx264",
+                    "-c:v", "h264_nvenc",
                     "-pix_fmt", "yuv420p",
-                    "-preset", "veryfast",
-                    "-tune", "zerolatency",
+                    "-preset", "p1",
+                    "-tune", "ll", 
+                    "-rc", "cbr",
                     "-b:v", r["br"],
                     "-maxrate", r["br"],
                     "-bufsize", "2M",
                     "-g", str(gop),
                     "-keyint_min", str(gop),
                     "-sc_threshold", "0",
-                    "-x264-params", f"keyint={gop}:min-keyint={gop}:scenecut=0:open-gop=0:bframes=0",
                 ]
 
             cmd += [

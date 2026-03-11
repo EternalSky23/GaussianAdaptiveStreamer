@@ -3,7 +3,7 @@ Gaussian Adaptive Streamer is a prototype system for adaptive streaming of 3D Ga
 
 # Requirements
 
-+ Nvidia GPU
++ Nvidia GPU with driver 
 + Python dependencies are listed in requirements.txt.
 
 ## Directory structure
