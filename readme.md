@@ -91,10 +91,16 @@ Linux:
 - Close Google Chrome before running this command.
 
 
-### Preview
+## Preview
+
+### Model Selection
 
 ![Model selection](images/chooseModel.png)
 
+### Viewer
+
 ![Viewer](images/Viewer.png)
+
+### Experiment
 
 ![Experiment](images/Experiment.png)
