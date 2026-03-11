@@ -11,6 +11,7 @@ Gaussian Adaptive Streamer is a prototype system for adaptive streaming of 3D Ga
 
 Create a models directory in the project root and place all models inside it:
 
+```bash
 project_root/
 ├── static
 │    └── models/
@@ -21,6 +22,7 @@ project_root/
 │           ├── anotherModelName.ply
 │           └── anotherPreview.jpg
 └── requirements.txt
+```
 
 These models and previews will be loaded automatically when starting the server.
 
