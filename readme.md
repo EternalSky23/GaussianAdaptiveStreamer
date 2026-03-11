@@ -89,3 +89,12 @@ Linux:
 **Note:**
 - For trying the experimental version with dash.js as player type instead of /models-ui, go to /player-dash.
 - Close Google Chrome before running this command.
+
+
+### Preview
+
+![Model selection](images/chooseModel.png)
+
+![Viewer](images/Viewer.png)
+
+![Experiment](images/Experiment.png)
