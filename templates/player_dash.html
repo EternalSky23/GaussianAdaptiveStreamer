@@ -5,7 +5,8 @@
   <title>3DGS DASH Player</title>
   <style>
     body { font-family: sans-serif; margin: 16px; }
-    video { width: 100%; max-width: 1280px; background: #000; }
+    video { width: 100%; max-width: 1600px; background: #000; }
+    canvas { width: 1600px; height: 1200px; background: #000; }
     .row { margin: 8px 0; }
     input { width: 420px; }
   </style>
@@ -20,11 +21,16 @@
   </div>
 
   <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
 
   <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
-
+  <script src="/static/neural.js"></script>
   <script>
     const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    canvas.height = 1200;
+    canvas.width = 1600;
+
     let player = null;
     let playerStarted = false;
 
@@ -219,6 +225,52 @@
     window.addEventListener('blur', () => {
       pressed.clear();
     });
+  </script>
+  <script type="module">
+    class Original {
+        constructor({inputTexture}) {
+            this.outputTexture = inputTexture;
+        }
+
+        updateParam(param, value) {
+            throw new Error("Method not implmented.")
+        }
+
+        pass(encoder) {}
+
+        getOutputTexture() {
+            return this.outputTexture;
+        }
+    }
+
+    webgpu_neural.render({
+        video: video, 
+        canvas: canvas,
+        pipelineBuilder: (device, inputTexture) => {
+            const upscale = new webgpu_neural.CNNx2VL({
+                device,
+                inputTexture,
+            });
+            const restore = new webgpu_neural.GANUUL({
+                device,
+                inputTexture: upscale.getOutputTexture(),
+            });
+            return [upscale, restore];
+        },
+    });
+
+    // webgpu_neural.render({
+    //     video: video, 
+    //     canvas: canvas,
+    //     pipelineBuilder: (device, inputTexture) => {
+    //         const ori = new Original({
+    //             device,
+    //             inputTexture,
+    //         });
+    //         return [ori];
+    //     },
+    // });
+    
   </script>
 </body>
 </html>
