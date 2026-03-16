@@ -28,8 +28,6 @@
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    canvas.height = 1200;
-    canvas.width = 1600;
 
     let player = null;
     let playerStarted = false;
@@ -243,7 +241,8 @@
         }
     }
 
-    webgpu_neural.render({
+
+    await webgpu_neural.render({
         video: video, 
         canvas: canvas,
         pipelineBuilder: (device, inputTexture) => {
@@ -270,7 +269,8 @@
     //         return [ori];
     //     },
     // });
-    
+    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth;
   </script>
 </body>
 </html>
