@@ -9,6 +9,7 @@
     <script src="/static/abrs/L2A.js"></script>
     <script src="/static/abrs/Latency.js"></script>
     <script src="/static/abrs/LoL+.js"></script>
+    <script src="/static/neural.js"></script>  
 </head>
 
 <body>
@@ -52,6 +53,11 @@
                 <option value="1920x1080">1920x1080</option>
                 <option value="2560x1440">2560x1440</option>
             </select>
+
+            <label class="row">
+                <span>Super Resolution</span>
+                <input type="checkbox" id="super-resolution"/>
+            </label>
 
             <div class="grid-2">
                 <label for="cx">Principal X (cx)</label>
@@ -132,7 +138,10 @@
 
         <section class="stage">
             <div id="object-viewer" role="img" aria-label="Rendered 3D view">
-                <p class="placeholder">Loading 3D object…</p>
+                <p class="placeholder" id="stage_placeholder">Loading 3D object…</p>
+                <canvas id="default_canvas"></canvas>
+                <canvas id="super_res_canvas" style="display: none;"></canvas>
+                <video id="dummy_video" autoplay muted style="display: none;"></video>
             </div>
 
             <div class="hud">
@@ -271,6 +280,16 @@
         const abrToggle = document.getElementById('abr-enabled');
         const abrAlgoSelect = document.getElementById('abr-algo');
 
+        const canvas = document.getElementById('default_canvas');
+        const super_res_canvas = document.getElementById('super_res_canvas');
+        const superResToggle = document.getElementById('super-resolution');
+        let dummy_vid = document.getElementById('dummy_video');
+        let stream = canvas.captureStream();
+        dummy_vid.srcObject = stream;
+
+        let super_res = false;
+        let sr_renderFlag = false;
+
         let abr = ABRFactory.create(abrAlgoSelect.value, resolutionSelect);
 
         let angle = 180;
@@ -370,6 +389,66 @@
             cx = width / 2; cy = height / 2;
             document.getElementById('cx').value = cx;
             document.getElementById('cy').value = cy;
+
+            updateImage();
+
+            // Super resolution
+            super_res = superResToggle.checked;
+            if (super_res) {
+                stream.removeTrack(stream.getTracks()[0]);
+                stream = canvas.captureStream();
+                canvas.style.display = "none";
+                super_res_canvas.style.display = "block";
+
+
+                let new_vid = document.createElement("video");
+                new_vid.autoplay = true;
+                new_vid.muted = true;
+                new_vid.srcObject = stream;
+                
+                dummy_vid.replaceWith(new_vid);
+                dummy_vid = new_vid;
+                dummy_vid.play();
+                dummy_vid.style.display = "none";
+
+                superResolutionRender();
+            }
+            else {
+                super_res_canvas.style.display = "none";
+                canvas.style.display = "block";
+                dummy_vid.pause();
+                let vid_placeholder = document.createElement("p");
+                vid_placeholder.style.display = "none";
+                dummy_vid.replaceWith(vid_placeholder);
+                dummy_vid = vid_placeholder;
+            }
+        }
+
+        function superResolutionRender() {
+            // Start super_resolution render
+
+            webgpu_neural.render({
+                video: dummy_vid, 
+                canvas: super_res_canvas,
+                pipelineBuilder: (device, inputTexture) => {
+                    const clampHighlights = new webgpu_neural.ClampHighlights({
+                        device,
+                        inputTexture,
+                    });
+                    const upscale = new webgpu_neural.DenoiseCNNx2VL({
+                        device,
+                        inputTexture: clampHighlights.getOutputTexture(),
+                    });
+                    const restore = new webgpu_neural.GANUUL({
+                        device,
+                        inputTexture: upscale.getOutputTexture(),
+                    });
+
+                    return [clampHighlights, upscale, restore];
+                },
+            }).then(() => {
+                updateImage();
+            });
         }
 
         function toggleSidebar() {
@@ -411,6 +490,9 @@
                         const img = new Image();
 
                         img.onload = () => {
+                            const stage_placeholder = document.getElementById('stage_placeholder');
+                            stage_placeholder.style.display = "none";
+
                             const displayW = Math.round(width);
                             const displayH = Math.round(height);
 
@@ -418,7 +500,7 @@
                             const ry = img.naturalHeight;
 
                             const scale = window.devicePixelRatio || 1;
-                            const canvas = document.createElement('canvas');
+                            // const canvas = document.createElement('canvas');
                             canvas.width = displayW * scale;
                             canvas.height = displayH * scale;
                             canvas.style.width = displayW + 'px';
@@ -430,9 +512,15 @@
                             ctx.scale(scale, scale);
 
                             ctx.drawImage(img, 0, 0, rx, ry, 0, 0, displayW, displayH);
-
-                            objectViewer.innerHTML = '';
-                            objectViewer.appendChild(canvas);
+                            
+                            // objectViewer.innerHTML = '';
+                            
+                            if (super_res) {
+                                super_res_canvas.width = displayW * scale * 2;
+                                super_res_canvas.height = displayH * scale * 2;
+                                super_res_canvas.style.width = displayW + 'px';
+                                super_res_canvas.style.height = displayH + 'px';
+                            }
 
                             isLoading = false;
 
