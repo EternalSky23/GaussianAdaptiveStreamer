@@ -54,10 +54,22 @@
                 <option value="2560x1440">2560x1440</option>
             </select>
 
-            <label class="row">
-                <span>Super Resolution</span>
-                <input type="checkbox" id="super-resolution"/>
-            </label>
+            <label for="super-resolution">Super Resolution Model</label>
+            <select id="super-resolution">
+                <option value="None">None</option>
+                <option value="CNNM">CNNM</option>
+                <option value="CNNSoftM">CNNSoftM</option>
+                <option value="CNNSoftVL">CNNSoftVL</option>
+                <option value="CNNVL">CNNVL</option>
+                <option value="CNNUL">CNNUL</option>
+                <option value="GANUUL">GANUUL</option>
+                <option value="CNNx2M">CNNx2M</option>
+                <option value="CNNx2VL">CNNx2VL</option>
+                <option value="DenoiseCNNx2VL">DenoiseCNNx2VL</option>
+                <option value="CNNx2UL">CNNx2UL</option>
+                <option value="GANx3L">GANx3L</option>
+                <option value="GANx4UUL">GANx4UUL</option>
+            </select>
 
             <div class="grid-2">
                 <label for="cx">Principal X (cx)</label>
@@ -139,8 +151,8 @@
         <section class="stage">
             <div id="object-viewer" role="img" aria-label="Rendered 3D view">
                 <p class="placeholder" id="stage_placeholder">Loading 3D object…</p>
-                <canvas id="default_canvas"></canvas>
-                <canvas id="super_res_canvas" style="display: none;"></canvas>
+                <canvas id="default_canvas" style="z-index: 10;"></canvas>
+                <canvas id="super_res_canvas" style="display: none; z-index: 0;"></canvas>
                 <video id="dummy_video" autoplay muted style="display: none;"></video>
             </div>
 
@@ -393,13 +405,12 @@
             updateImage();
 
             // Super resolution
-            super_res = superResToggle.checked;
-            if (super_res) {
+            super_res = superResToggle.value;
+            if (super_res != "None") {
                 stream.removeTrack(stream.getTracks()[0]);
                 stream = canvas.captureStream();
                 canvas.style.display = "none";
                 super_res_canvas.style.display = "block";
-
 
                 let new_vid = document.createElement("video");
                 new_vid.autoplay = true;
@@ -410,8 +421,9 @@
                 dummy_vid = new_vid;
                 dummy_vid.play();
                 dummy_vid.style.display = "none";
+                updateImage();
 
-                superResolutionRender();
+                superResolutionRender(super_res);
             }
             else {
                 super_res_canvas.style.display = "none";
@@ -424,30 +436,23 @@
             }
         }
 
-        function superResolutionRender() {
+        function superResolutionRender(model_name) {
             // Start super_resolution render
 
             webgpu_neural.render({
                 video: dummy_vid, 
                 canvas: super_res_canvas,
                 pipelineBuilder: (device, inputTexture) => {
-                    const clampHighlights = new webgpu_neural.ClampHighlights({
+                    const model = new webgpu_neural[model_name]({
                         device,
                         inputTexture,
                     });
-                    const upscale = new webgpu_neural.DenoiseCNNx2VL({
-                        device,
-                        inputTexture: clampHighlights.getOutputTexture(),
-                    });
-                    const restore = new webgpu_neural.GANUUL({
-                        device,
-                        inputTexture: upscale.getOutputTexture(),
-                    });
 
-                    return [clampHighlights, upscale, restore];
+                    return [model];
                 },
             }).then(() => {
                 updateImage();
+                console.log(`${model_name} is chosen for super resolution.`)
             });
         }
 
@@ -515,7 +520,7 @@
                             
                             // objectViewer.innerHTML = '';
                             
-                            if (super_res) {
+                            if (super_res != "None") {
                                 super_res_canvas.width = displayW * scale * 2;
                                 super_res_canvas.height = displayH * scale * 2;
                                 super_res_canvas.style.width = displayW + 'px';
