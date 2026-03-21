@@ -9,6 +9,7 @@
     <script src="/static/abrs/L2A.js"></script>
     <script src="/static/abrs/Latency.js"></script>
     <script src="/static/abrs/LoL+.js"></script>
+    <script src="/static/neural.js"></script>  
 </head>
 
 <body>
@@ -51,6 +52,23 @@
                 <option value="1600x900">1600x900</option>
                 <option value="1920x1080">1920x1080</option>
                 <option value="2560x1440">2560x1440</option>
+            </select>
+
+            <label for="super-resolution">Super Resolution Model</label>
+            <select id="super-resolution">
+                <option value="None">None</option>
+                <option value="CNNM">CNNM</option>
+                <option value="CNNSoftM">CNNSoftM</option>
+                <option value="CNNSoftVL">CNNSoftVL</option>
+                <option value="CNNVL">CNNVL</option>
+                <option value="CNNUL">CNNUL</option>
+                <option value="GANUUL">GANUUL</option>
+                <option value="CNNx2M">CNNx2M</option>
+                <option value="CNNx2VL">CNNx2VL</option>
+                <option value="DenoiseCNNx2VL">DenoiseCNNx2VL</option>
+                <option value="CNNx2UL">CNNx2UL</option>
+                <option value="GANx3L">GANx3L</option>
+                <option value="GANx4UUL">GANx4UUL</option>
             </select>
 
             <div class="grid-2">
@@ -132,7 +150,10 @@
 
         <section class="stage">
             <div id="object-viewer" role="img" aria-label="Rendered 3D view">
-                <p class="placeholder">Loading 3D object…</p>
+                <p class="placeholder" id="stage_placeholder">Loading 3D object…</p>
+                <canvas id="default_canvas" style="z-index: 10;"></canvas>
+                <canvas id="super_res_canvas" style="display: none; z-index: 0;"></canvas>
+                <video id="dummy_video" autoplay muted style="display: none;"></video>
             </div>
 
             <div class="hud">
@@ -271,6 +292,16 @@
         const abrToggle = document.getElementById('abr-enabled');
         const abrAlgoSelect = document.getElementById('abr-algo');
 
+        const canvas = document.getElementById('default_canvas');
+        const super_res_canvas = document.getElementById('super_res_canvas');
+        const superResToggle = document.getElementById('super-resolution');
+        let dummy_vid = document.getElementById('dummy_video');
+        let stream = canvas.captureStream();
+        dummy_vid.srcObject = stream;
+
+        let super_res = false;
+        let sr_renderFlag = false;
+
         let abr = ABRFactory.create(abrAlgoSelect.value, resolutionSelect);
 
         let angle = 180;
@@ -370,6 +401,59 @@
             cx = width / 2; cy = height / 2;
             document.getElementById('cx').value = cx;
             document.getElementById('cy').value = cy;
+
+            updateImage();
+
+            // Super resolution
+            super_res = superResToggle.value;
+            if (super_res != "None") {
+                stream.removeTrack(stream.getTracks()[0]);
+                stream = canvas.captureStream();
+                canvas.style.display = "none";
+                super_res_canvas.style.display = "block";
+
+                let new_vid = document.createElement("video");
+                new_vid.autoplay = true;
+                new_vid.muted = true;
+                new_vid.srcObject = stream;
+                
+                dummy_vid.replaceWith(new_vid);
+                dummy_vid = new_vid;
+                dummy_vid.play();
+                dummy_vid.style.display = "none";
+                updateImage();
+
+                superResolutionRender(super_res);
+            }
+            else {
+                super_res_canvas.style.display = "none";
+                canvas.style.display = "block";
+                dummy_vid.pause();
+                let vid_placeholder = document.createElement("p");
+                vid_placeholder.style.display = "none";
+                dummy_vid.replaceWith(vid_placeholder);
+                dummy_vid = vid_placeholder;
+            }
+        }
+
+        function superResolutionRender(model_name) {
+            // Start super_resolution render
+
+            webgpu_neural.render({
+                video: dummy_vid, 
+                canvas: super_res_canvas,
+                pipelineBuilder: (device, inputTexture) => {
+                    const model = new webgpu_neural[model_name]({
+                        device,
+                        inputTexture,
+                    });
+
+                    return [model];
+                },
+            }).then(() => {
+                updateImage();
+                console.log(`${model_name} is chosen for super resolution.`)
+            });
         }
 
         function toggleSidebar() {
@@ -411,6 +495,9 @@
                         const img = new Image();
 
                         img.onload = () => {
+                            const stage_placeholder = document.getElementById('stage_placeholder');
+                            stage_placeholder.style.display = "none";
+
                             const displayW = Math.round(width);
                             const displayH = Math.round(height);
 
@@ -418,7 +505,7 @@
                             const ry = img.naturalHeight;
 
                             const scale = window.devicePixelRatio || 1;
-                            const canvas = document.createElement('canvas');
+                            // const canvas = document.createElement('canvas');
                             canvas.width = displayW * scale;
                             canvas.height = displayH * scale;
                             canvas.style.width = displayW + 'px';
@@ -430,9 +517,15 @@
                             ctx.scale(scale, scale);
 
                             ctx.drawImage(img, 0, 0, rx, ry, 0, 0, displayW, displayH);
-
-                            objectViewer.innerHTML = '';
-                            objectViewer.appendChild(canvas);
+                            
+                            // objectViewer.innerHTML = '';
+                            
+                            if (super_res != "None") {
+                                super_res_canvas.width = displayW * scale * 2;
+                                super_res_canvas.height = displayH * scale * 2;
+                                super_res_canvas.style.width = displayW + 'px';
+                                super_res_canvas.style.height = displayH + 'px';
+                            }
 
                             isLoading = false;
 
