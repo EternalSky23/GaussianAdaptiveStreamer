@@ -16,25 +16,30 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, FileResponse, Response, PlainTextResponse
 
 async def models_page(request: Request):
+    logger.info("Get models page.")
     await ensure_started()
     return FileResponse("templates/models.html")
 
 async def player_page(request: Request):
+    logger.info("Get jpeg player page.")
     await ensure_started()
     return FileResponse("templates/player.html")
 
 async def player_dash_page(request: Request):
+    logger.info("Get dash player page.")
     await ensure_started()
     p = Path("templates/player_dash.html")
     logger.info("CWD=%s exists=%s abs=%s", os.getcwd(), p.exists(), p.resolve())
     return FileResponse("templates/player_dash.html")
 
 async def get_list_of_all_available_models(request: Request):
+    logger.info("Get list of models.")
     await ensure_started()
     models = await list_models()  
     return JSONResponse(models)
 
 async def render_handler(request: Request):
+    logger.info("Render image")
     await ensure_started()
 
     data = await request.json()
@@ -92,6 +97,7 @@ def to_response(result: HandlerResult):
     
 # POST /metrics/predict
 async def metrics_predict(request):
+    logger.info("Get metrics.")
     await ensure_started()
     try:
         body = await request.json()
@@ -105,6 +111,7 @@ async def metrics_predict(request):
 
 # POST /metrics/predict
 async def save_movements(request):
+    logger.info("Save movement.")
     await ensure_started()
     try:
         body = await request.json()
@@ -117,6 +124,7 @@ async def save_movements(request):
 
 
 async def export_experiment(request : Request):
+    logger.info("Export experiment.")
     await ensure_started()
     file_name = request.path_params["file_name"]
 
@@ -145,6 +153,7 @@ def model_to_json(model) -> dict:
 MODEL_LOAD_LOCK = asyncio.Lock()
 
 async def load_model(request: Request):
+    logger.info("Load model.")
     await ensure_started()
     data = await request.json()
     model_id = data.get("modelId")
@@ -164,6 +173,7 @@ async def load_model(request: Request):
 
 
 async def save_images(request: Request):
+    logger.info("Save image")
     await ensure_started()
 
     data = await request.json()
@@ -224,12 +234,7 @@ from pathlib import Path
 from typing import Any
 
 def load_movements(path: str | Path) -> list[dict[str, Any]]:
-    """
-    Load movement items from an NDJSON file.
-
-    Each line must be a valid JSON object.
-    Returns a list of dicts with the parameters defined in the file.
-    """
+    logger.info("Load movement")
     items: list[dict[str, Any]] = []
 
     path = Path(f"{EXPERIMENTS_DIR}/{path}/movements.ndjson")
@@ -253,6 +258,7 @@ def load_movements(path: str | Path) -> list[dict[str, Any]]:
 
 # POST /control
 async def control(request: Request):
+    logger.info("Update control")
     await ensure_started()
     body = await request.json()
 
@@ -281,6 +287,7 @@ async def control(request: Request):
 
 # GET /dash/status
 async def dash_status(request: Request):
+    logger.info("Get status")
     await ensure_started()
     return JSONResponse({
         "running": STREAMER.is_running(),
@@ -290,12 +297,14 @@ async def dash_status(request: Request):
 
 # POST /dash/stop
 async def dash_stop(request: Request):
+    logger.info("Stop")
     await ensure_started()
     await STREAMER.stop()
     return JSONResponse({"ok": True})
 
 
 async def dash_file(request: Request):
+    logger.info("Get dash file")
     rel = request.path_params["path"]
 
     # Prevent path traversal
