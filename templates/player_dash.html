@@ -5,7 +5,8 @@
   <title>3DGS DASH Player</title>
   <style>
     body { font-family: sans-serif; margin: 16px; }
-    video { width: 100%; max-width: 1280px; background: #000; }
+    video { width: 100%; max-width: 800px; background: #000; }
+    canvas { width: 800px; height: 600px; background: #000; }
     .row { margin: 8px 0; }
     input { width: 420px; }
   </style>
@@ -20,11 +21,14 @@
   </div>
 
   <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
 
   <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
-
+  <script src="/static/neural.js"></script>
   <script>
     const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+
     let player = null;
     let playerStarted = false;
 
@@ -219,6 +223,26 @@
     window.addEventListener('blur', () => {
       pressed.clear();
     });
+  </script>
+  <script type="module">
+    await webgpu_neural.render({
+        video: video, 
+        canvas: canvas,
+        pipelineBuilder: (device, inputTexture) => {
+            const upscale = new webgpu_neural.CNNx2VL({
+                device,
+                inputTexture,
+            });
+            const restore = new webgpu_neural.GANUUL({
+                device,
+                inputTexture: upscale.getOutputTexture(),
+            });
+            return [upscale, restore];
+        },
+    });
+
+    canvas.height = video.videoHeight * 2;
+    canvas.width = video.videoWidth * 2;
   </script>
 </body>
 </html>

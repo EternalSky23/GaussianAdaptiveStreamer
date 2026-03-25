@@ -1,1 +1,6 @@
 static/models/*
+__pycache__
+.vscode
+
+static/models
+experiment
