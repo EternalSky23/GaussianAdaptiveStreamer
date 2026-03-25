@@ -36,7 +36,7 @@ class LatencyABR {
   }
 
   startRequest() { 
-    let t = performance.now();
+    let t = Date.now();
     this.tBeginRequest = t;
     this._t0 = t; 
   }
@@ -45,7 +45,7 @@ class LatencyABR {
     if (this._t0 == null) return;
 
 
-    let t = performance.now();
+    let t = Date.now();
     this.tEndRequest = t;
     const dt = t - this._t0;
     this._t0 = null;

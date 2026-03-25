@@ -732,7 +732,7 @@
         abr = ABRFactory.create(kind, resolutionSelect);
     }
 
-    async function runOnePlayback(events) {
+    async function runOnePlayback(events, folderName, fileName) {
         let frameid = 0;
         for (const ev of events) {
             if (EXP_CANCEL) throw new Error('CANCELLED');
@@ -754,37 +754,45 @@
             const beginTime = abr.tBeginRequest
             const endTime = abr.tEndRequest
 
-            await reportPred(frameid, beginTime, endTime, networkName, fileName, predictedBps, profileIdx, renderMs);
-            await saveMovement(frameid, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profileIdx)
+
+            await reportPred(frameid, beginTime, endTime, networkName, folderName, fileName, predictedBps, profileIdx, renderMs);
+            await saveMovement(frameid, folderName, fileName, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profileIdx);
+            frameid++;
         }
     }
 
-    async function reportPred(networkName, beginTime, endTime, fileName, pred_bps, profile, renderMs) {
+    async function reportPred(frameid, beginTime, endTime, networkName, originFolderName, runFolderName, pred_bps, profile, renderMs) {
         try {
         await fetch("/metrics/predict", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
             body: JSON.stringify({
-            networkName,
-            fileName,
-            pred_bps,
-            profile,
-            renderMs: renderMs
+                frameid,
+                networkName,
+                beginTime,
+                endTime,
+                originFolderName,
+                runFolderName,
+                pred_bps,
+                profile,
+                renderMs
             })
         });
         } catch (e) {
             console.warn("[predict] post failed", e);
         }
     }
-    async function saveMovement(filename, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profile) {
+    async function saveMovement(frameid,originFolderName, runFolderName, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profile) {
         try {
         await fetch("/movement", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
             body: JSON.stringify({
-                fileName,
+                frameid,
+                originFolderName,
+                runFolderName,
                 modelId,
                 angle,
                 elevation,
@@ -820,7 +828,8 @@
         for (let r = 1; r <= runsPerAbr; r++) {
             if (EXP_CANCEL) throw new Error('CANCELLED');
 
-            fileName = `${expFileName.value}__${abrKind}__run${r}`;
+            let fileName = `${abrKind}_run_${r}`;
+            let folderName = `${expFileName.value}`;
 
             setAbrKind(abrKind);
 
@@ -829,13 +838,13 @@
             if (typeof abr.reset === 'function') abr.reset();
 
             setExpUI({
-            running:true,
-            status:"Running",
-            detail:`ABR=${abrKind} (run ${r}/${runsPerAbr}) → folder: ${fileName}`,
-            progress01: doneRuns / totalRuns
+                running:true,
+                status:"Running",
+                detail:`ABR=${abrKind} (run ${r}/${runsPerAbr}) → folder: ${fileName}`,
+                progress01: doneRuns / totalRuns
             });
 
-            await runOnePlayback(events);
+            await runOnePlayback(events, folderName, fileName);
 
             doneRuns++;
             setExpUI({running:true, progress01: doneRuns / totalRuns});

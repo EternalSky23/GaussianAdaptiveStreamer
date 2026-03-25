@@ -77,7 +77,7 @@ class LoLPlusABR {
   }
 
   startRequest() { 
-    let t = performance.now();
+    let t = Date.now();
     this.tBeginRequest = t;
     this._t0 = t; 
   }
@@ -85,7 +85,7 @@ class LoLPlusABR {
   endRequest(contentLengthBytes, _rx = 0, _ry = 0, renderMs = NaN) {
     if (this._t0 == null) return;
 
-    let t = performance.now();
+    let t = Date.now();
     this.tEndRequest = t;
     const dt = t - this._t0;
     this._t0 = null;

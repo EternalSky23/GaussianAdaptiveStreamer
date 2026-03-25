@@ -63,14 +63,22 @@ def parse_predict_body(body: Dict[str, Any]) -> Dict[str, Any]:
     pred_bps = float(body["pred_bps"])
 
     profile = body.get("profile")
-    file_name = body.get("fileName") or "default"
+    originFolderName = body.get("originFolderName")
+    runFolderName = body.get("runFolderName")
     network = body.get("networkName")
     render_ms = body.get("renderMs")
-
+    frameid = body.get("frameid")
+    beginTime = body.get("beginTime")
+    endTime = body.get("endTime")
+    
     return {
+        "frameid": frameid,
+        "beginTime": beginTime,
+        "endTime":endTime,
         "pred_bps": pred_bps,
         "profile": profile,
-        "file_name": file_name,
+        "originFolderName": originFolderName,
+        "runFolderName": runFolderName,
         "network": network,
         "render_ms": render_ms,
         "raw": body,  # keep original for logging if you want
@@ -106,34 +114,39 @@ async def metrics_predict_logic(body: Dict[str, Any]) -> HandlerResult:
 
 
     try:
-        tc_status = get_current_kbps(parsed["network"])
+        tc_status = get_current_kbps(parsed["network"]) #Add to file for local testing
     except Exception as e:
         return HandlerResult(status=500, text=f"Failed to read tc status: {e}")
 
     rec = {
-        "t_server": now_ms(),
+        "frameid": parsed["frameid"],
+        "beginTime": parsed["beginTime"],
+        "endTime": parsed["endTime"],
         "pred_bps": parsed["pred_bps"],
         "profile": parsed["profile"],
-        "tc_status": tc_status,
         "renderMs": parsed["render_ms"],
     }
 
-    out_path = os.path.join(EXPERIMENTS_DIR, parsed["file_name"])
-    os.makedirs(out_path, exist_ok=True)
+    experimentFolder = os.path.join(EXPERIMENTS_DIR, parsed["originFolderName"])
+    os.makedirs(experimentFolder, exist_ok=True)
+    
+    runFolder = os.path.join(experimentFolder, parsed["runFolderName"])
+    os.makedirs(runFolder, exist_ok=True)
 
-    with open(os.path.join(out_path, "testdata.ndjson"), "a", buffering=1) as f:
+    with open(os.path.join(runFolder, "testdata.ndjson"), "a", buffering=1) as f:
         f.write(json.dumps(rec) + "\n")
 
     logger.info("Request with data: %s", parsed["raw"])
-    logger.info("[predict] file=%s record=%s", parsed["file_name"], rec)
 
     return HandlerResult(
         status=200,
-        payload={"ok": True, "file": parsed["file_name"]},
+        payload={"ok": True, "file": parsed["originFolderName"]},
     )
 
 async def save_movement(body: Dict[str, Any]) -> HandlerResult:
-    fileName = body.get("fileName")
+    frameid = body.get("frameid")
+    originFolderName = body.get("originFolderName")
+    runFolderName = body.get("runFolderName")
     modelId = body.get("modelId")
     angle = body.get("angle")
     elevation = body.get("elevation")
@@ -150,6 +163,7 @@ async def save_movement(body: Dict[str, Any]) -> HandlerResult:
 
 
     movement = {
+        "frameid": frameid,
         "modelId": modelId,
         "angle": angle,
         "elevation": elevation,
@@ -167,10 +181,15 @@ async def save_movement(body: Dict[str, Any]) -> HandlerResult:
     
     print(movement)
 
-    out_path = os.path.join(EXPERIMENTS_DIR, fileName)
-    os.makedirs(out_path, exist_ok=True)
+    experimentFolder = os.path.join(EXPERIMENTS_DIR, originFolderName)
+    os.makedirs(experimentFolder, exist_ok=True)
+    
+    runFolder = os.path.join(experimentFolder, runFolderName)
+    os.makedirs(runFolder, exist_ok=True)
+    
+    
 
-    with open(os.path.join(out_path, "movements.ndjson"), "a", buffering=1) as f:
+    with open(os.path.join(runFolder, "movements.ndjson"), "a", buffering=1) as f:
         f.write(json.dumps(movement) + "\n")
 
     return HandlerResult(
