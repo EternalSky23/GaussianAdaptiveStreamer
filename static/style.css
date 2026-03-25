@@ -108,6 +108,7 @@ select:focus { border-color: var(--brand); box-shadow: var(--ring); }
   grid-template-columns: 1fr 1fr;
   gap: 10px 12px;
   align-items: center;
+  padding: 6px 0px;
 }
 
 .file-input {
