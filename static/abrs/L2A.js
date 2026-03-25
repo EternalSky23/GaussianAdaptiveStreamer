@@ -47,6 +47,9 @@ class L2A_ABR {
     this._lastProbs = Array(this.K).fill(1 / this.K);
     this._lastPChosen = 1.0;
     this.lastThroughputBps = 0;
+
+    this.tBeginRequest = null;
+    this.tEndRequest = null;
   }
 
   setResolution(w, h) {
@@ -112,12 +115,19 @@ class L2A_ABR {
     return this.profile;
   }
 
-  startRequest() { this._t0 = performance.now(); }
+  startRequest() { 
+    let t = performance.now();
+    this.tBeginRequest = t;
+    this._t0 = t; 
+  }
 
   endRequest(contentLengthBytes = 0, _rx = 0, _ry = 0, renderMs = NaN) {
     if (this._t0 == null) return;
 
-    const dtTotal = performance.now() - this._t0;
+
+    let t = performance.now();
+    this.tEndRequest = t;
+    const dtTotal = t - this._t0;
     this._t0 = null;
 
     const hasServer = Number.isFinite(renderMs) && renderMs >= 0;

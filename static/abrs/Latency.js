@@ -21,6 +21,9 @@ class LatencyABR {
     this.debug = true;
     this.startAt = 3;
     this._initialized = false;
+
+    this.tBeginRequest = null;
+    this.tEndRequest = null;
   }
 
   pickProfile() {
@@ -32,12 +35,19 @@ class LatencyABR {
     return this.profile;
   }
 
-  startRequest() { this._t0 = performance.now(); }
+  startRequest() { 
+    let t = performance.now();
+    this.tBeginRequest = t;
+    this._t0 = t; 
+  }
 
   endRequest(contentLengthBytes = 0, rx = 0, ry = 0, renderMs = NaN) {
     if (this._t0 == null) return;
-    const t1 = performance.now();
-    const dt = t1 - this._t0;
+
+
+    let t = performance.now();
+    this.tEndRequest = t;
+    const dt = t - this._t0;
     this._t0 = null;
     const hasServer = Number.isFinite(renderMs) && renderMs >= 0;
     const netMs = hasServer ? Math.max(1, dt - renderMs) : dt;

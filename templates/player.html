@@ -733,6 +733,7 @@
     }
 
     async function runOnePlayback(events) {
+        let frameid = 0;
         for (const ev of events) {
             if (EXP_CANCEL) throw new Error('CANCELLED');
 
@@ -750,13 +751,15 @@
             const predictedBps = abr.lastThroughputBps;
             const profileIdx = abr.profile;
             const networkName = expNetworkName.value;
+            const beginTime = abr.tBeginRequest
+            const endTime = abr.tEndRequest
 
-            await reportPred(networkName, fileName, predictedBps, profileIdx, renderMs);
-            await saveMovement(fileName, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profileIdx)
+            await reportPred(frameid, beginTime, endTime, networkName, fileName, predictedBps, profileIdx, renderMs);
+            await saveMovement(frameid, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profileIdx)
         }
     }
 
-    async function reportPred(networkName, fileName, pred_bps, profile, renderMs) {
+    async function reportPred(networkName, beginTime, endTime, fileName, pred_bps, profile, renderMs) {
         try {
         await fetch("/metrics/predict", {
             method: "POST",

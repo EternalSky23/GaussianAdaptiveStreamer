@@ -76,11 +76,18 @@ class LoLPlusABR {
     return this.profile;
   }
 
-  startRequest() { this._t0 = performance.now(); }
+  startRequest() { 
+    let t = performance.now();
+    this.tBeginRequest = t;
+    this._t0 = t; 
+  }
 
   endRequest(contentLengthBytes, _rx = 0, _ry = 0, renderMs = NaN) {
     if (this._t0 == null) return;
-    const dt = performance.now() - this._t0;
+
+    let t = performance.now();
+    this.tEndRequest = t;
+    const dt = t - this._t0;
     this._t0 = null;
     const hasServer = Number.isFinite(renderMs) && renderMs >= 0;
     const netMs = hasServer ? Math.max(1, dt - renderMs) : dt;
