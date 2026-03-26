@@ -32,6 +32,7 @@ starlette = Starlette(
         Route("/loadModel", routes.load_model, methods=["POST"]),
         Route("/movement", routes.save_movements, methods=["POST"]),
         Route("/saveImages", routes.save_images, methods=["POST"]),
+        Route("/save_sr_image", routes.receive_sr, methods=["POST"]),
         
         Route("/control", routes.control, methods=["POST"]),
         Route("/dash/status", routes.dash_status, methods=["GET"]),
