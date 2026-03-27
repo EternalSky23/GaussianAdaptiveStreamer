@@ -114,7 +114,7 @@ def render_image_raw(
 
     render_ms = (t_transfer - t0) * 1000.0
 
-    logger.info(
+    logger.debug(
         "[Render] total(no-encode)=%.2fms (raster=%.2fms, gpu_downsample=%.2fms, transfer=%.2fms)",
         render_ms,
         (t_render - t0) * 1000,
