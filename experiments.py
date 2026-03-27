@@ -5,7 +5,7 @@ from logger import logger
 
 import io, os, zipfile, subprocess, re, time, json
 
-from statics import ROOT, EXPERIMENTS_DIR
+from statics import EXPERIMENTS_DIR
 
 @dataclass(frozen=True)
 class HandlerResult:
@@ -26,24 +26,18 @@ async def export_experiment_data(file_name: str) -> ExportResult:
     if not file_name:
         return ExportResult(status=404)
 
-    cap_dir = os.path.join(ROOT, "captures", file_name)
-    ndjson_path = os.path.join(EXPERIMENTS_DIR, file_name, "testdata.ndjson")
+    exp_dir = os.path.join(EXPERIMENTS_DIR, file_name)
 
-    if not os.path.isdir(cap_dir) or not os.path.isfile(ndjson_path):
+    if not os.path.isdir(exp_dir):
         return ExportResult(status=404)
 
     buf = io.BytesIO()
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.write(
-            ndjson_path,
-            arcname=os.path.join("experiment", file_name, "testdata.ndjson"),
-        )
-
-        for root_dir, _, files in os.walk(cap_dir):
+        for root_dir, _, files in os.walk(exp_dir):
             for fn in files:
                 full_path = os.path.join(root_dir, fn)
-                rel_path = os.path.relpath(full_path, ROOT)
+                rel_path = os.path.relpath(full_path, os.path.dirname(EXPERIMENTS_DIR))
                 z.write(full_path, arcname=rel_path)
 
     return ExportResult(
@@ -136,7 +130,7 @@ async def metrics_predict_logic(body: Dict[str, Any]) -> HandlerResult:
     with open(os.path.join(runFolder, "testdata.ndjson"), "a", buffering=1) as f:
         f.write(json.dumps(rec) + "\n")
 
-    logger.info("Request with data: %s", parsed["raw"])
+    logger.debug("Request with data: %s", parsed["raw"])
 
     return HandlerResult(
         status=200,
@@ -179,7 +173,7 @@ async def save_movement(body: Dict[str, Any]) -> HandlerResult:
         "profile": profile   
     }
     
-    print(movement)
+    logger.debug("Save movement payload: %s", movement)
 
     experimentFolder = os.path.join(EXPERIMENTS_DIR, originFolderName)
     os.makedirs(experimentFolder, exist_ok=True)

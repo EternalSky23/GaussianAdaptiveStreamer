@@ -85,6 +85,16 @@ Linux:
   --origin-to-force-quic-on=localhost:4433 \
   https://localhost:4433/models-ui
 ```
+If super resolution is not working, try:
+```bash
+google-chrome \
+  --enable-experimental-web-platform-features \
+  --enable-unsafe-webgpu \
+  --ignore-gpu-blocklist \
+  --ignore-certificate-errors-spki-list=BSQJ0jkQ7wwhR7KvPZ+DSNk2XTZ/MS6xCbo9qu++VdQ= \
+  --origin-to-force-quic-on=localhost:4433 \
+  https://localhost:4433/models-ui
+```
 
 **Note:**
 - For trying the experimental version with dash.js as player type instead of /models-ui, go to /player-dash.

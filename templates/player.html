@@ -204,6 +204,16 @@
           <input id="exp-runsPerAbr" type="number" min="1" step="1" value="1" />
         </label>
 
+                <label>
+                    <span>Experiment SR Restore Model</span>
+                    <select id="exp-sr-restore"></select>
+                </label>
+
+                <label>
+                    <span>Experiment SR Upscale Model</span>
+                    <select id="exp-sr-upscale"></select>
+                </label>
+
         <label class="exp-row">
           <span>Disable manual input during run</span>
           <input id="exp-lockUI" type="checkbox" checked />
@@ -309,12 +319,35 @@
         let stream = canvas.captureStream();
         let canvasMultiplier = 1;
         let image_id = 0;
+        let activeSRConfig = null;
         dummy_vid.srcObject = stream;
         
         const worker = new Worker('/static/OPFSWorker.js');
         let sr_saveFolder = "";
         let super_res = false;
-        let save_sr_image = false;
+        const SAMPLE_FRAME_STRIDE = 12;
+        let pendingSrWrites = 0;
+        let srCaptureAttempted = 0;
+        let srCapturePosted = 0;
+        let srCaptureBlobNull = 0;
+        let srWorkerWriteSuccess = 0;
+        let srWorkerWriteError = 0;
+        let srRuntimeErrorMessage = "";
+        let srRequestedInRun = false;
+
+        worker.addEventListener('message', (event) => {
+            const status = event?.data?.status;
+            if (status === 'SUCCESS' || status === 'ERROR') {
+                pendingSrWrites = Math.max(0, pendingSrWrites - 1);
+            }
+            if (status === 'SUCCESS') {
+                srWorkerWriteSuccess++;
+            }
+            if (status === 'ERROR') {
+                srWorkerWriteError++;
+                console.warn('[OPFS] write failed', event?.data?.message);
+            }
+        });
 
         let abr = ABRFactory.create(abrAlgoSelect.value, resolutionSelect);
 
@@ -424,8 +457,6 @@
             if (super_res) {
                 stream.removeTrack(stream.getTracks()[0]);
                 stream = canvas.captureStream();
-                // canvas.style.display = "none";
-                canvas.style.visibility = "hidden";
                 super_res_canvas.style.display = "block";
 
                 let new_vid = document.createElement("video");
@@ -437,17 +468,16 @@
                 dummy_vid = new_vid;
                 dummy_vid.style.display = "block";
                 dummy_vid.style.visibility = "hidden";
-                dummy_vid.play();
-                updateImage();
-                
-                superResolutionRender(restoreModel, upscaleModel);
                 const scale = window.devicePixelRatio || 1;
                 super_res_canvas.width = w * scale * canvasMultiplier;
                 super_res_canvas.height = h * scale * canvasMultiplier;
                 super_res_canvas.style.width = w + 'px';
                 super_res_canvas.style.height = h + 'px';
+
+                superResolutionRender(restoreModel, upscaleModel, w, h);
             }
             else {
+                activeSRConfig = null;
                 super_res_canvas.style.display = "none";
                 canvas.style.visibility = "";
                 // canvas.style.display = "block";
@@ -461,57 +491,153 @@
 
         }
 
-        function superResolutionRender(restoreModel, upscaleModel) {
-            // Start super_resolution render
+        function resolveNeuralModelCtor(modelName) {
+            if (modelName === "None") return null;
+            const ctor = webgpu_neural?.[modelName];
+            if (typeof ctor !== "function") {
+                throw new Error(`Model '${modelName}' is not available in neural.js`);
+            }
+            return ctor;
+        }
 
-            webgpu_neural.render({
-                video: dummy_vid, 
+        function rollbackSuperResolution(reason) {
+            console.error('[SR] Falling back to default renderer:', reason);
+            srRuntimeErrorMessage = String(reason?.message || reason || 'unknown SR error');
+            activeSRConfig = null;
+            super_res = false;
+            super_res_canvas.style.display = "none";
+            canvas.style.visibility = "";
+            try {
+                if (dummy_vid && typeof dummy_vid.pause === 'function') {
+                    dummy_vid.pause();
+                }
+            } catch (_) {
+                // best effort cleanup
+            }
+            updateImage();
+        }
+
+        async function waitForVideoReady(videoEl, timeoutMs = 5000) {
+            if (!videoEl) throw new Error('Missing SR video element');
+            if (videoEl.readyState >= 2 && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) return;
+
+            await new Promise((resolve, reject) => {
+                const onReady = () => {
+                    cleanup();
+                    resolve();
+                };
+                const onError = () => {
+                    cleanup();
+                    reject(new Error('SR stream video failed to start'));
+                };
+                const timer = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('Timed out waiting for SR stream video metadata'));
+                }, timeoutMs);
+
+                function cleanup() {
+                    clearTimeout(timer);
+                    videoEl.removeEventListener('loadedmetadata', onReady);
+                    videoEl.removeEventListener('canplay', onReady);
+                    videoEl.removeEventListener('error', onError);
+                }
+
+                videoEl.addEventListener('loadedmetadata', onReady, { once: true });
+                videoEl.addEventListener('canplay', onReady, { once: true });
+                videoEl.addEventListener('error', onError, { once: true });
+            });
+        }
+
+        async function superResolutionRender(restoreModel, upscaleModel, widthPx, heightPx) {
+            // Start super_resolution render
+            const configKey = `${restoreModel}|${upscaleModel}|${widthPx}x${heightPx}`;
+            activeSRConfig = configKey;
+
+            let restoreCtor;
+            let upscaleCtor;
+            try {
+                restoreCtor = resolveNeuralModelCtor(restoreModel);
+                upscaleCtor = resolveNeuralModelCtor(upscaleModel);
+            } catch (err) {
+                rollbackSuperResolution(err);
+                return;
+            }
+
+            const r = /\d+/;
+            const mul = upscaleModel.match(r);
+            canvasMultiplier = mul == null ? 1 : Number(mul);
+            const scale = window.devicePixelRatio || 1;
+            super_res_canvas.width = widthPx * scale * canvasMultiplier;
+            super_res_canvas.height = heightPx * scale * canvasMultiplier;
+            super_res_canvas.style.width = widthPx + 'px';
+            super_res_canvas.style.height = heightPx + 'px';
+
+            try {
+                await dummy_vid.play();
+            } catch (err) {
+                rollbackSuperResolution(err);
+                return;
+            }
+
+            try {
+                await waitForVideoReady(dummy_vid);
+            } catch (err) {
+                rollbackSuperResolution(err);
+                return;
+            }
+
+            canvas.style.visibility = "hidden";
+
+            Promise.resolve(webgpu_neural.render({
+                video: dummy_vid,
                 canvas: super_res_canvas,
                 pipelineBuilder: (device, inputTexture) => {
-                    const r = /\d+/;
-                    const mul = upscaleModel.match(r);
-                    if (mul == null) {
-                        canvasMultiplier = 1;
-                    }
-                    else {
-                        canvasMultiplier = Number(mul);
-                    }
-
-                    if (upscaleModel == "None") {
-                        const restore = new webgpu_neural[restoreModel]({
+                    if (upscaleCtor == null) {
+                        const restore = new restoreCtor({
                             device,
                             inputTexture,
                         });
                         return [restore];
                     }
-                    if (restoreModel == "None") {
-                        const upscale = new webgpu_neural[upscaleModel]({
+                    if (restoreCtor == null) {
+                        const upscale = new upscaleCtor({
                             device,
                             inputTexture,
                         });
                         return [upscale];
                     }
 
-                    const upscale = new webgpu_neural[upscaleModel]({
+                    const upscale = new upscaleCtor({
                         device,
                         inputTexture,
                     });
-                    const restore = new webgpu_neural[restoreModel]({
+                    const restore = new restoreCtor({
                         device,
                         inputTexture: upscale.getOutputTexture(),
                     });
 
                     return [upscale, restore];
                 },
-            }).then(() => {
-                updateImage();
-                save_sr_image = false;
+            })).then(() => {
+                if (activeSRConfig !== configKey) return;
+                srRuntimeErrorMessage = "";
                 console.log(`${restoreModel}, ${upscaleModel} is chosen for super resolution.`);
+            }).catch((err) => {
+                if (activeSRConfig !== configKey) return;
+                rollbackSuperResolution(err);
             });
         }
 
         function toggleSidebar() {
             sidebar.classList.toggle('collapsed');
+        }
+
+        function shouldCaptureSampledSRFrame(frameId) {
+            return Number.isInteger(frameId) && frameId >= 0 && (frameId % SAMPLE_FRAME_STRIDE === 0);
+        }
+
+        function isSRRequestedByUI() {
+            return (superResRestore.value !== 'None') || (superResUpscale.value !== 'None');
         }
 
         function sendPosition() {
@@ -571,22 +697,22 @@
                             ctx.scale(scale, scale);
 
                             ctx.drawImage(img, 0, 0, rx, ry, 0, 0, displayW, displayH);
-                            if (super_res && save_sr_image && EXP_RUNNING) {
-                                save_sr_image = false;
-                                const sr_fileName = `${expFileName.value}-${sr_saveFolder}-${image_id}.png`;
-                                setTimeout(() => {save_sr_image = true;}, 500); // every 0.5 sec
-                                const stream = super_res_canvas.captureStream(0); 
-                                const track = stream.getVideoTracks()[0];
-                                
-                                const capture = new ImageCapture(track);
-                                capture.grabFrame().then((bitmap) => {
-                                    const offscreen = new OffscreenCanvas(super_res_canvas.width, super_res_canvas.height);
-                                    const ctx = offscreen.getContext('2d');
-                                    ctx.drawImage(bitmap, 0, 0);
-                                    return offscreen.convertToBlob();
-                                }).then((sr_blob) => {
+                            if (super_res && EXP_RUNNING && shouldCaptureSampledSRFrame(image_id)) {
+                                srCaptureAttempted++;
+                                const expPart = encodeURIComponent(expFileName.value || 'exp');
+                                const runPart = encodeURIComponent(sr_saveFolder || 'run');
+                                const framePart = Number.isFinite(image_id) ? image_id : 0;
+                                const sr_fileName = `exp=${expPart}__run=${runPart}__frame=${framePart}.png`;
+                                super_res_canvas.toBlob((sr_blob) => {
+                                    if (!sr_blob) {
+                                        srCaptureBlobNull++;
+                                        console.warn('[SR] toBlob returned null; sampled SR frame was skipped', sr_fileName);
+                                        return;
+                                    }
+                                    srCapturePosted++;
+                                    pendingSrWrites++;
                                     worker.postMessage({blob: sr_blob, filename: sr_fileName});
-                                });
+                                }, 'image/png');
                             }
 
                             isLoading = false;
@@ -708,13 +834,39 @@
     const expNetworkName = document.getElementById('exp-networkName');
     const expPlaybackFile = document.getElementById('exp-playbackFile');
     const expRunsPerAbr = document.getElementById('exp-runsPerAbr');
+    const expSrRestore = document.getElementById('exp-sr-restore');
+    const expSrUpscale = document.getElementById('exp-sr-upscale');
     const expLockUI = document.getElementById('exp-lockUI');
     const expAutoExport = document.getElementById('exp-autoExport');
 
     let EXP_CANCEL = false;
     let EXP_RUNNING = false;
 
+    function syncExpSrOptionsFromSidebar() {
+        if (!expSrRestore || !expSrUpscale) return;
+
+        expSrRestore.innerHTML = '';
+        expSrUpscale.innerHTML = '';
+
+        for (const opt of superResRestore.options) {
+            expSrRestore.appendChild(opt.cloneNode(true));
+        }
+        for (const opt of superResUpscale.options) {
+            expSrUpscale.appendChild(opt.cloneNode(true));
+        }
+
+        expSrRestore.value = superResRestore.value;
+        expSrUpscale.value = superResUpscale.value;
+    }
+
+    function applyExperimentSRToSidebarControls() {
+        if (!expSrRestore || !expSrUpscale) return;
+        superResRestore.value = expSrRestore.value;
+        superResUpscale.value = expSrUpscale.value;
+    }
+
     function showOverlay() { 
+        syncExpSrOptionsFromSidebar();
         overlay.classList.remove('hidden'); 
     }
     function hideOverlay() { 
@@ -738,6 +890,16 @@
 
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    async function waitForPendingSrWrites(timeoutMs = 20000) {
+        const start = performance.now();
+        while (pendingSrWrites > 0) {
+            if (performance.now() - start > timeoutMs) {
+                throw new Error('Timed out while waiting for SR frames to be written to OPFS.');
+            }
+            await sleep(50);
+        }
+    }
 
     async function loadPlaybackEventsFromFile(file) {
         const text = await file.text();
@@ -766,8 +928,8 @@
             positionDisplay.textContent =
                 `Angle: ${angle.toFixed(0)}°, Elevation: ${elevation.toFixed(0)}°, X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}, Z: ${z.toFixed(1)}`;
 
+            image_id = frameid;
             await sendPosition();
-            image_id++;
             const predictedBps = abr.lastThroughputBps;
             const profileIdx = abr.profile;
             const networkName = expNetworkName.value;
@@ -837,6 +999,7 @@
 
     async function runExperimentSequentialABRs({events, runsPerAbr, lockUI, autoExport}) {
         const abrOrder = ['simple', 'l2a', 'lol+'];
+        const completedRuns = [];
 
         const totalRuns = abrOrder.length * runsPerAbr;
         let doneRuns = 0;
@@ -867,6 +1030,7 @@
             });
 
             await runOnePlayback(events, folderName, fileName);
+            completedRuns.push({ originFolderName: folderName, runFolderName: fileName });
 
             doneRuns++;
             setExpUI({running:true, progress01: doneRuns / totalRuns});
@@ -881,6 +1045,96 @@
             const base = document.getElementById('exp-fileName')?.value?.trim();
             if (base) window.open(`/export?fileName=${encodeURIComponent(base)}`, '_blank');
         }
+
+        return completedRuns;
+    }
+
+    async function clearOPFSRootEntries(rootHandle) {
+        for await (const [name] of rootHandle.entries()) {
+            await rootHandle.removeEntry(name, { recursive: true });
+        }
+    }
+
+    async function listOPFSFiles(rootHandle) {
+        const files = [];
+        for await (const [name, handle] of rootHandle.entries()) {
+            if (handle.kind === 'file') files.push({ name, handle });
+        }
+        return files;
+    }
+
+    async function uploadOPFSFiles(rootHandle) {
+        const files = await listOPFSFiles(rootHandle);
+        if (!files.length) {
+            let detail = 'No sampled SR frames found to upload.';
+            if (srRequestedInRun || super_res) {
+                detail += ` Capture attempts=${srCaptureAttempted}, posted=${srCapturePosted}, blob-null=${srCaptureBlobNull}, opfs-ok=${srWorkerWriteSuccess}, opfs-error=${srWorkerWriteError}.`;
+                if (srRuntimeErrorMessage) detail += ` SR fallback reason: ${srRuntimeErrorMessage}.`;
+            } else {
+                detail += ' SR is currently disabled.';
+            }
+            setExpUI({ running: true, status: 'Uploading', detail, progress01: 1 });
+            return 0;
+        }
+
+        let uploaded = 0;
+        for (const { name, handle } of files) {
+            const file = await handle.getFile();
+            await fetch('/save_sr_image', {
+                method: 'POST',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'image/png', 'File-Name': `${name}` },
+                body: file
+            });
+
+            uploaded++;
+            setExpUI({
+                running: true,
+                status: 'Saving sampled frames',
+                detail: `Saving sampled frames ${uploaded}/${files.length}. Keep this tab open until status is Finished.`,
+                progress01: uploaded / files.length
+            });
+        }
+
+        return uploaded;
+    }
+
+    async function materializeSampledFramesForRuns(completedRuns, stride) {
+        const total = completedRuns.length;
+        let done = 0;
+        let totalSampled = 0;
+
+        for (const run of completedRuns) {
+            setExpUI({
+                running: true,
+                status: 'Saving sampled Original+GT',
+                detail: `Processing ${run.runFolderName} (${done + 1}/${total}) at stride=${stride}. (SR uploads are handled in the previous phase.) Keep this tab open until Finished.`,
+                progress01: total ? (done / total) : 1,
+            });
+
+            const res = await fetch('/materialize_sampled_frames', {
+                method: 'POST',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    originFolderName: run.originFolderName,
+                    runFolderName: run.runFolderName,
+                    stride
+                })
+            });
+
+            if (!res.ok) {
+                const txt = await res.text().catch(() => 'unknown server error');
+                throw new Error(`materialize_sampled_frames failed for ${run.runFolderName}: ${txt}`);
+            }
+
+            const body = await res.json().catch(() => ({}));
+            totalSampled += Number(body.sampled_frames || 0);
+            done += 1;
+            setExpUI({ running: true, progress01: total ? (done / total) : 1 });
+        }
+
+        return { runs: total, sampledFrames: totalSampled };
     }
 
     expCancelBtn.addEventListener('click', () => {
@@ -904,31 +1158,45 @@
 
         const events = await loadPlaybackEventsFromFile(pbFile);
 
+        // Use SR models selected in experiment popup for this run.
+        applyExperimentSRToSidebarControls();
+
+        // Freeze SR intent for this run and force-apply current selections.
+        srRequestedInRun = isSRRequestedByUI();
+        applyConfig();
+        await sleep(50);
+
         const root = await navigator.storage.getDirectory();
-        await root.remove({recursive: true}); // clearup OPFS first
-        setTimeout(() => {save_sr_image = true;}, 500);
+        await clearOPFSRootEntries(root);
+        pendingSrWrites = 0;
+        srCaptureAttempted = 0;
+        srCapturePosted = 0;
+        srCaptureBlobNull = 0;
+        srWorkerWriteSuccess = 0;
+        srWorkerWriteError = 0;
+        if (!srRequestedInRun) {
+            srRuntimeErrorMessage = "";
+        }
         
-        await runExperimentSequentialABRs({
+        const completedRuns = await runExperimentSequentialABRs({
             events,
             runsPerAbr,
             lockUI: !!expLockUI.checked,
             autoExport: !!expAutoExport.checked
         });
         
-        setExpUI({running: true, status:"Uploading", detail:"Uploading experiment data.", progress01:1});
-        for await (let [name, handle] of root) {
-            const file = await handle.getFile();
-            
-            const res = await fetch('/save_sr_image', {
-                method: 'POST',
-                cache: 'no-store',
-                headers: { 'Content-Type': 'image/png', 'File-Name': `${name}` },
-                body: file
-            });
-        }
+        setExpUI({running: true, status:"Uploading", detail:"Finalizing sampled SR frames in browser storage. Keep this tab open.", progress01:0});
+        await waitForPendingSrWrites();
 
-        await root.remove({recursive: true});
-        setExpUI({running:false, status:"Finished", detail:"All ABRs completed.", progress01:1});
+        setExpUI({running: true, status:"Uploading", detail:"Uploading sampled SR frames (if enabled). Keep this tab open until Finished.", progress01:0});
+        const uploadedCount = await uploadOPFSFiles(root);
+        await clearOPFSRootEntries(root);
+
+        const materialized = await materializeSampledFramesForRuns(completedRuns, SAMPLE_FRAME_STRIDE);
+        const srPart = uploadedCount > 0
+            ? `SR=${uploadedCount} sampled frame(s)`
+            : `SR=0 (requested=${srRequestedInRun}, active=${super_res}, attempted=${srCaptureAttempted}, posted=${srCapturePosted}, blob-null=${srCaptureBlobNull}, opfs-ok=${srWorkerWriteSuccess}, opfs-error=${srWorkerWriteError}${srRuntimeErrorMessage ? `, fallback=${srRuntimeErrorMessage}` : ''})`;
+        setExpUI({running:false, status:"Finished", detail:`Saved sampled frames with stride=${SAMPLE_FRAME_STRIDE}: Original+GT over ${materialized.sampledFrames} sampled frame(s), ${srPart}.`, progress01:1});
 
         } catch (err) {
         if (String(err?.message || err).includes('CANCELLED')) {
@@ -943,6 +1211,12 @@
 
     // Initial state
     setExpUI({running:false, status:"Idle", detail:"Configure settings and press Start.", progress01:0});
+
+    window.addEventListener('beforeunload', (event) => {
+        if (!EXP_RUNNING) return;
+        event.preventDefault();
+        event.returnValue = 'An experiment is still saving sampled frames. Leaving now may lose results.';
+    });
 </script>
 
 <script>
