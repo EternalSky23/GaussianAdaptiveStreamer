@@ -6,7 +6,7 @@ from render import render_image_raw, save_render_bytes
 from models import get_model, ensure_started
 from concurrent.futures import ThreadPoolExecutor
 from encoding import encode_jpeg, encode_png
-from statics import EXPERIMENTS_DIR, DASH_DIR
+from statics import EXPERIMENTS_DIR, DASH_DIR, CAPTURES_DIR
 from dash_streamer import STREAMER
 
 
@@ -323,3 +323,22 @@ async def dash_file(request: Request):
     elif p.endswith(".m4s") or p.endswith(".mp4"):
         resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
+
+async def receive_sr(request: Request):
+    logger.info("Get image")
+    dir = os.path.realpath(CAPTURES_DIR)
+    img = await request.body()
+
+    filename = request.headers.get("file-name").split("-")
+
+    save_path = os.path.join(dir, f"{filename[0]}_SR", filename[1], filename[2])
+    folder_path = os.path.dirname(save_path)
+    os.makedirs(folder_path, exist_ok=True)
+    f = open(save_path, "wb")
+    f.write(img)
+    f.close()
+
+    return Response(
+        status_code=200,
+        headers={"Cache-Control": "no-store"},
+    )

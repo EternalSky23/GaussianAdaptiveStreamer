@@ -10,6 +10,7 @@
     <script src="/static/abrs/Latency.js"></script>
     <script src="/static/abrs/LoL+.js"></script>
     <script src="/static/neural.js"></script>  
+    <script src="/static/OPFSWorker.js"></script>
 </head>
 
 <body>
@@ -307,10 +308,13 @@
         let dummy_vid = document.getElementById('dummy_video');
         let stream = canvas.captureStream();
         let canvasMultiplier = 1;
+        let image_id = 0;
         dummy_vid.srcObject = stream;
-
+        
+        const worker = new Worker('/static/OPFSWorker.js');
+        let sr_saveFolder = "";
         let super_res = false;
-        let sr_renderFlag = false;
+        let save_sr_image = false;
 
         let abr = ABRFactory.create(abrAlgoSelect.value, resolutionSelect);
 
@@ -412,7 +416,6 @@
             document.getElementById('cx').value = cx;
             document.getElementById('cy').value = cy;
 
-            updateImage();
 
             // Super resolution
             let restoreModel = superResRestore.value;
@@ -421,7 +424,8 @@
             if (super_res) {
                 stream.removeTrack(stream.getTracks()[0]);
                 stream = canvas.captureStream();
-                canvas.style.display = "none";
+                // canvas.style.display = "none";
+                canvas.style.visibility = "hidden";
                 super_res_canvas.style.display = "block";
 
                 let new_vid = document.createElement("video");
@@ -437,16 +441,24 @@
                 updateImage();
                 
                 superResolutionRender(restoreModel, upscaleModel);
+                const scale = window.devicePixelRatio || 1;
+                super_res_canvas.width = w * scale * canvasMultiplier;
+                super_res_canvas.height = h * scale * canvasMultiplier;
+                super_res_canvas.style.width = w + 'px';
+                super_res_canvas.style.height = h + 'px';
             }
             else {
                 super_res_canvas.style.display = "none";
-                canvas.style.display = "block";
+                canvas.style.visibility = "";
+                // canvas.style.display = "block";
                 dummy_vid.pause();
                 let vid_placeholder = document.createElement("p");
                 vid_placeholder.style.display = "none";
                 dummy_vid.replaceWith(vid_placeholder);
                 dummy_vid = vid_placeholder;
             }
+            updateImage();
+
         }
 
         function superResolutionRender(restoreModel, upscaleModel) {
@@ -493,8 +505,8 @@
                 },
             }).then(() => {
                 updateImage();
-                console.log(`${restoreModel}, ${upscaleModel} is chosen for super resolution.`)
-                
+                save_sr_image = false;
+                console.log(`${restoreModel}, ${upscaleModel} is chosen for super resolution.`);
             });
         }
 
@@ -559,14 +571,22 @@
                             ctx.scale(scale, scale);
 
                             ctx.drawImage(img, 0, 0, rx, ry, 0, 0, displayW, displayH);
-                            
-                            // objectViewer.innerHTML = '';
-                            
-                            if (super_res) {
-                                super_res_canvas.width = displayW * scale * canvasMultiplier;
-                                super_res_canvas.height = displayH * scale * canvasMultiplier;
-                                super_res_canvas.style.width = displayW + 'px';
-                                super_res_canvas.style.height = displayH + 'px';
+                            if (super_res && save_sr_image && EXP_RUNNING) {
+                                save_sr_image = false;
+                                const sr_fileName = `${expFileName.value}-${sr_saveFolder}-${image_id}.png`;
+                                setTimeout(() => {save_sr_image = true;}, 500); // every 0.5 sec
+                                const stream = super_res_canvas.captureStream(0); 
+                                const track = stream.getVideoTracks()[0];
+                                
+                                const capture = new ImageCapture(track);
+                                capture.grabFrame().then((bitmap) => {
+                                    const offscreen = new OffscreenCanvas(super_res_canvas.width, super_res_canvas.height);
+                                    const ctx = offscreen.getContext('2d');
+                                    ctx.drawImage(bitmap, 0, 0);
+                                    return offscreen.convertToBlob();
+                                }).then((sr_blob) => {
+                                    worker.postMessage({blob: sr_blob, filename: sr_fileName});
+                                });
                             }
 
                             isLoading = false;
@@ -747,7 +767,7 @@
                 `Angle: ${angle.toFixed(0)}°, Elevation: ${elevation.toFixed(0)}°, X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}, Z: ${z.toFixed(1)}`;
 
             await sendPosition();
-
+            image_id++;
             const predictedBps = abr.lastThroughputBps;
             const profileIdx = abr.profile;
             const networkName = expNetworkName.value;
@@ -763,7 +783,7 @@
 
     async function reportPred(frameid, beginTime, endTime, networkName, originFolderName, runFolderName, pred_bps, profile, renderMs) {
         try {
-        await fetch("/metrics/predict", {
+        const res = await fetch("/metrics/predict", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
@@ -779,6 +799,8 @@
                 renderMs
             })
         });
+        const body = await res.json();
+        return body;
         } catch (e) {
             console.warn("[predict] post failed", e);
         }
@@ -823,16 +845,16 @@
         EXP_CANCEL = false;
 
         abrToggle.checked = true;
-
         for (const abrKind of abrOrder) {
         for (let r = 1; r <= runsPerAbr; r++) {
             if (EXP_CANCEL) throw new Error('CANCELLED');
 
             let fileName = `${abrKind}_run_${r}`;
             let folderName = `${expFileName.value}`;
+            sr_saveFolder = fileName;
 
             setAbrKind(abrKind);
-
+            image_id = 0;
             // Optional: reset ABR internal state between runs, if your ABR classes support it
             // (safer for reproducibility)
             if (typeof abr.reset === 'function') abr.reset();
@@ -853,7 +875,6 @@
         }
         }
 
-        setExpUI({running:false, status:"Finished", detail:"All ABRs completed.", progress01:1});
 
 
         if (autoExport) {
@@ -883,12 +904,31 @@
 
         const events = await loadPlaybackEventsFromFile(pbFile);
 
+        const root = await navigator.storage.getDirectory();
+        await root.remove({recursive: true}); // clearup OPFS first
+        setTimeout(() => {save_sr_image = true;}, 500);
+        
         await runExperimentSequentialABRs({
             events,
             runsPerAbr,
             lockUI: !!expLockUI.checked,
             autoExport: !!expAutoExport.checked
         });
+        
+        setExpUI({running: true, status:"Uploading", detail:"Uploading experiment data.", progress01:1});
+        for await (let [name, handle] of root) {
+            const file = await handle.getFile();
+            
+            const res = await fetch('/save_sr_image', {
+                method: 'POST',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'image/png', 'File-Name': `${name}` },
+                body: file
+            });
+        }
+
+        await root.remove({recursive: true});
+        setExpUI({running:false, status:"Finished", detail:"All ABRs completed.", progress01:1});
 
         } catch (err) {
         if (String(err?.message || err).includes('CANCELLED')) {
