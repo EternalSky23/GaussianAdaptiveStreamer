@@ -152,6 +152,7 @@
             </div>
             <div class="status">
                 <span class="chip">Server render: <strong><span id="render-ms">–</span> ms</strong></span>
+                <span class="chip">Frame rate: <strong><span id="fps">–</span> FPS</strong></span>
                 <span class="chip secondary">Position: <strong id="position-display">Angle: 180°, Elevation: 0°, X: 0,
                         Y: 0, Z: 5</strong></span>
             </div>
@@ -373,6 +374,17 @@
         let isLoading = false;
         const keysPressed = new Set();
 
+        let frameCount = 0;
+        let prevCount = 0;
+        let prevTime = 0;
+        setInterval(() => {
+            const now = frameCount;
+            const curTime = performance.now();
+            document.getElementById("fps").innerHTML = `${Math.round((now - prevCount) * 1000 / (curTime - prevTime) * 10) / 10}`;
+            prevCount = now;
+            prevTime = curTime;
+        }, 1000);
+
         abrToggle.addEventListener('change', () => {
 
         });
@@ -480,8 +492,10 @@
                 activeSRConfig = null;
                 super_res_canvas.style.display = "none";
                 canvas.style.visibility = "";
-                // canvas.style.display = "block";
-                dummy_vid.pause();
+                // Prevent error when video is replaced by placeholder
+                if (typeof dummy_vid.pause === "function") dummy_vid.pause();
+
+                // Delete video element by replacing
                 let vid_placeholder = document.createElement("p");
                 vid_placeholder.style.display = "none";
                 dummy_vid.replaceWith(vid_placeholder);
@@ -747,7 +761,7 @@
                             URL.revokeObjectURL(imgUrl);
                             reject(new Error("Image load failed"));
                         };
-
+                        frameCount++;
                         img.src = imgUrl;
                     })
                     .catch(error => {
@@ -936,9 +950,8 @@
             const beginTime = abr.tBeginRequest
             const endTime = abr.tEndRequest
 
-
-            await reportPred(frameid, beginTime, endTime, networkName, folderName, fileName, predictedBps, profileIdx, renderMs);
-            await saveMovement(frameid, folderName, fileName, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profileIdx);
+            reportPred(frameid, beginTime, endTime, networkName, folderName, fileName, predictedBps, profileIdx, renderMs);
+            saveMovement(frameid, folderName, fileName, modelId, angle, elevation, x, y, z, fx, fy, cx, cy, width, height, profileIdx);
             frameid++;
         }
     }
