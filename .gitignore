@@ -4,3 +4,7 @@ __pycache__
 
 captures
 experiment
+
+run_browser.sh
+baseline_experiment
+fig
