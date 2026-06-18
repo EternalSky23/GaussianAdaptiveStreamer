@@ -9,6 +9,7 @@
     <script src="/static/abrs/Throughput.js"></script>
     <script src="/static/neural.js"></script>  
     <script src="/static/OPFSWorker.js"></script>
+    <script src="/static/chunkParsing.js"></script>
 </head>
 
 <body>
@@ -29,7 +30,7 @@
 
             <label class="row">
                 <span>Auto Quality (ABR)</span>
-                <input type="checkbox" id="abr-enabled" checked disabled/>
+                <input type="checkbox" id="abr-enabled" checked/>
             </label>
 
             <label for="resolution">Resolution</label>
@@ -181,10 +182,10 @@
           <input id="exp-fileName" type="text" placeholder="e.g. lte_run_01" />
         </label>
 
-        <label>
+        <!-- <label>
           <span>Network name (for tc_status)</span>
           <input id="exp-networkName" type="text" placeholder="e.g. LTE_2min" />
-        </label>
+        </label> -->
 
         <label>
           <span>Playback JSON</span>
@@ -194,6 +195,11 @@
         <label>
           <span>Runs per ABR</span>
           <input id="exp-runsPerAbr" type="number" min="1" step="1" value="1" />
+        </label>
+
+        <label>
+          <span>Network Trace (for Oracle)</span>
+          <input type="file" id="exp-traceFile" accept=".csv" />
         </label>
 
                 <label>
@@ -425,11 +431,14 @@
             posStep = parseFloat(document.getElementById('pos-step').value);
             profileChoosen = document.getElementById('profile')?.value;
 
+            abrEnabledActive = abrToggle.checked;
+            if (abrEnabledActive) {
+                throughputABR.reset();
+            }
 
             cx = width / 2; cy = height / 2;
             document.getElementById('cx').value = cx;
             document.getElementById('cy').value = cy;
-
 
             // Super resolution
             let restoreModel = superResRestore.value;
@@ -682,6 +691,7 @@
     const expFileName = document.getElementById('exp-fileName');
     const expNetworkName = document.getElementById('exp-networkName');
     const expPlaybackFile = document.getElementById('exp-playbackFile');
+    const expTraceFile = document.getElementById('exp-traceFile');
     const expRunsPerAbr = document.getElementById('exp-runsPerAbr');
     const expSrRestore = document.getElementById('exp-sr-restore');
     const expSrUpscale = document.getElementById('exp-sr-upscale');
@@ -911,11 +921,13 @@
         const baseName = (expFileName.value || '').trim();
         if (!baseName) { alert("Please enter a file name."); return; }
 
-        const net = (expNetworkName.value || '').trim();
-        if (!net) { alert("Please enter a network name."); return; }
+        // const net = (expNetworkName.value || '').trim();
+        // if (!net) { alert("Please enter a network name."); return; }
 
         const pbFile = expPlaybackFile.files?.[0];
         if (!pbFile) { alert("Please select a playback JSON."); return; }
+
+        const traceCsvFile = expTraceFile?.files?.[0];
 
         const runsPerAbr = Math.max(1, parseInt(expRunsPerAbr.value || '1', 10));
 
@@ -946,15 +958,18 @@
 
         // run only WT experiment needed
         setExpUI({running: true, status:"Running playback", detail:"Playing back recorded movements. Keep this tab open.", progress01:0});
+        if (!!traceCsvFile) {
+            oracleExperiment(traceCsvFile);
+        }
         runOnePlayback(events);
         const data = await recordExperimentData();
-        setExpUI({running: false, status:"Playback finished", detail:"Finished playing back recorded movements. Experiment complete.", progress01:1});
         
         if (!!EXP_CANCEL) {
             setExpUI({running:false, status:"Cancelled", detail:"Experiment cancelled.", progress01:0});
             return;
         }
         else {
+            setExpUI({running: true, status:"Saving data", detail:"Saving recorded latency and fps data. Keep this tab open.", progress01:0});
             for (const [i, d] of data.entries()) {
                 await fetch("/experiment_data", {
                     method: "POST",
@@ -967,6 +982,7 @@
                     })
                 });
             }
+            setExpUI({running: false, status:"Playback finished", detail:"Finished playing back recorded movements. Experiment complete.", progress01:1});
         }
 
         return;
@@ -996,6 +1012,38 @@
         }
     });
 
+    async function oracleExperiment(trace_csv) {
+        abrEnabledActive = false;
+        profileChoosen = 3;
+        const bws = await trace_csv.text();
+        const lines = bws.split('\n').map(l => Number(l.trim())).filter(n => !isNaN(n));
+        const total = lines.length;
+        let idx = 0;
+        while (idx < total) {
+            if (EXP_CANCEL || !EXP_RUNNING) break;
+            const bw = lines[idx];
+            if (bw < 1750) {
+                profileChoosen = 3;
+            }
+            else if (bw < 5000) {
+                profileChoosen = 2;
+            }
+            else if (bw < 30000) {
+                profileChoosen = 1;
+            }
+            else {
+                profileChoosen = 0;
+            }
+            console.log(bw, profileChoosen);
+            await sleep(1000);
+            idx++;
+        }
+
+        // revert settings after oracle experiment
+        abrEnabledActive = abrToggle.checked;
+        profileChoosen = document.getElementById('profile')?.value;
+    }
+
     async function recordExperimentData() {
         const data = new Array();
         while (EXP_RUNNING) {
@@ -1003,7 +1051,7 @@
             data.push({
                 latency: throughputABR.lastLatencyMs,
                 fps: document.getElementById("fps").textContent,
-            })
+            });
             await sleep(1000);
             if (EXP_CANCEL) break;
         }
@@ -1088,6 +1136,8 @@
   });
 </script>
 <script>
+    const chunkBuffer = new Worker('static/chunkParsing.js');
+
     async function WebTransportStart(url) {
         const transport = new WebTransport(url);
         transport.closed.then(() => {
@@ -1103,10 +1153,10 @@
     const throughputABR = new ThroughputABR();
     let _profile = null;
     async function WT_SendCameraConfig(writer) {
-        // const profile = abr.pickProfile(width, height);
-        // abr.startRequest(profile, width, height);
         await writer.ready;
-        _profile = throughputABR.pickProfile();
+        if (abrEnabledActive) {_profile = throughputABR.pickProfile();}
+        else {_profile = profileChoosen;}
+
         const msg = JSON.stringify({
             modelId, angle, elevation, 
             x, y, z, fx, fy, cx, cy, 
@@ -1135,7 +1185,6 @@
         return full_msg;
     }
     
-    let prev = 0;
     async function WT_ReceiveImage(reader) {
         while (true) {
             const {value, done} = await reader.read();
@@ -1143,70 +1192,34 @@
                 break;
             }
             
-            throughputABR.addReceiveBytes(value.length);
-            // console.log("diff", performance.now() - prev);
-            prev = performance.now();
-            handleChunks(value);
-        }
-    }
-
-    const chunksBuffer = new Map();
-    function handleChunks(data) {
-        const view = new DataView(data.buffer, 0, 18);
-        const imageId = view.getUint32(0);
-        const chunkIdx = view.getUint8(4);
-        const totalChunks = view.getUint8(5);
-        const timestemp = view.getBigUint64(6, false);
-        const render_ms = view.getFloat32(14, false);
-        const payload = data.slice(18);
-        if (!chunksBuffer.has(imageId)) {
-            const timeout = setTimeout(() => {
-                if (chunksBuffer.has(imageId)) {
-                    console.warn(`Image ${imageId} timed out. Dropping.`);
-                    chunksBuffer.delete(imageId);
-                    throughputABR.reportTimeout();
-                }
-            }, 100);
-
-            chunksBuffer.set(imageId, {
-                data: new Array(totalChunks).fill(null),
-                timer: timeout,
-                receivedCount: 0,
-                firstSendTime: Number(timestemp),
-                firstReceiveTime: performance.timeOrigin + performance.now(),
-                renderMs: render_ms
+            chunkBuffer.postMessage({
+                type: 'chunk',
+                chunk: value
             });
         }
-
-        const entry = chunksBuffer.get(imageId);
-        if (entry.data[chunkIdx] === null) {
-            entry.data[chunkIdx] = payload;
-            entry.receivedCount++;
-        }
-
-        if (entry.receivedCount === totalChunks) {
-            clearTimeout(entry.timer);
-            const fullImage = new Blob(entry.data, { type: 'image/jpeg' });
-            renderImage(fullImage, entry.renderMs);
-            throughputABR.renderMs = entry.renderMs;
-            throughputABR.updateChunkCompleteTime(entry.firstSendTime, performance.timeOrigin + performance.now());
-            throughputABR.updateProcessingTime((performance.timeOrigin + performance.now() - entry.firstReceiveTime)
-                 * (entry.receivedCount + 1) / entry.receivedCount);
-            throughputABR.calcFrameTimeDiff(performance.timeOrigin + performance.now() - entry.firstSendTime);
-                 // throughputABR.calcThroughput(fullImage.size - 1350, performance.timeOrigin + performance.now() - entry.firstReceiveTime);
-            chunksBuffer.delete(imageId); // Clearup
-            
-            transport.then(async (wt) => {
-                const stats = await wt.getStats();
-                const rtt = stats.smoothedRtt;
-                throughputABR.updateWithEstimatedRTT(rtt);
-            })
-        }
     }
 
-    function renderImage(fullImage, renderMs) {
+    chunkBuffer.onmessage = (event) => {
+        const data = event.data;
+        if (data['type'] === 'image') {
+            renderImage(data['url']);
+            updateUIMetaData(data['metadata']['renderMs']);
+            throughputABR.updateMetadata(data['metadata']);
+        }
+        else if (data['type'] === 'error') {
+            console.error('Error in chunk parsing worker:', data['errorType'], 
+                'Image ID:', data['imageId']
+            );
+        } 
+    };
+
+    function updateUIMetaData(renderMs) {
+        const renderTime = document.getElementById('render-ms');
+        renderTime.innerHTML = renderMs.toFixed(2);
+    }
+
+    function renderImage(url) {
         const ctx = canvas.getContext('2d', { alpha: false });
-        const url = URL.createObjectURL(fullImage);
         const image = new Image();
         image.onload = () => {
             const img_width = image.naturalWidth;
@@ -1223,9 +1236,6 @@
             URL.revokeObjectURL(url);
         };
         image.src = url;
-
-        const renderTime = document.getElementById('render-ms');
-        renderTime.innerHTML = renderMs.toFixed(2);
     }
 
     const route = 'wt';

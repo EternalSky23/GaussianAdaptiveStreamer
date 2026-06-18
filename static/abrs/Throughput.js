@@ -6,24 +6,17 @@ class ThroughputABR {
         this.maxProfile = 3;
         this.profile = 3;
 
-        this.lastReceivedBytes = 0;
-        this.lastBitrate = 0;
-        this.previousEstimatedTimestep = 0;
+        this.estimateSmoothedBitrate = 0;
+        this.estimateSmoothedBandwidth = 0;
+        this.lastLatencyMs = 0;
 
         this.goodStreak = 0;
         this.badStreak = 0;
         this.upgradeRequiredStreak = 20;
-        this.upgradeBoundaryMs = 30;
+        this.upgradeBoundaryMs = 25;
         this.downgradeRequiredStreak = 7;
         this.downgradeBoundaryMs = 50;
         
-        this.lastProcessingTimeMs = 0;
-        this.lastFinishProcessingTime = 0;
-        this.processingTimeGoodStreak = 0;
-        this.processingTimeGoodStreakBoundary = 15;
-
-        this.estimateLatency = 0;
-        this.lastLatencyMs = 0;
 
         this.lastSendTimestemp = 0;
         this.lastReceiveTimestemp = 0;
@@ -47,8 +40,6 @@ class ThroughputABR {
 
         this.timeoutStreak = 0;
         this.timeoutStreakBoundary = 3;
-
-        setInterval(this.estimateBitrate.bind(this), 500);
     }
 
     _ewma(oldVal, newVal, alpha = 0.2) {
@@ -57,109 +48,70 @@ class ThroughputABR {
     }
 
     pickProfile() {
-        this.shouldChangeABRLevel();
+        this.tryChangeABRLevel();
         return this.profile;
     }
 
-    startRequest() { 
-        // No-op
+    updateMetadata(metadata) {
+        /* 
+            renderMs: the time server renders the frame
+            firstSendTime: the last time client sends its position update to the server
+            firstReceiveTime: the time when client receives the first chunk of the frame
+            finishTime: the time when client finishes processing the frame
+            size: the size of the frame in bytes
+
+            We use above metadata to calculate the latency and processing time, which are used for ABR decision
+        */
+        const renderMs = metadata['renderMs'];
+        const firstSendTime = metadata['firstSendTime'];
+        const firstReceiveTime = metadata['firstReceiveTime'];
+        const finishTime = metadata['finishTime'];
+        const size = metadata['size'];
+
+        const totalLatency = finishTime - firstSendTime;
+        const estimateBandwidth = size / (finishTime - firstReceiveTime) * 1000 // kbps;
+        const estimateRTT = firstReceiveTime - firstSendTime - renderMs;
+
+
+        this._calcBitrate(size);
+        this._updateLatency(totalLatency);
     }
 
-    endRequest(contentLengthBytes = 0, rx = 0, ry = 0, renderMs = NaN) {
-        // No-op
+    _calcBitrate(size) {
+        this.lastBitrate = size * this.fps;
+        this.estimateSmoothedBitrate = this._ewma(this.estimateSmoothedBitrate, this.lastBitrate);
     }
 
-    addReceiveBytes(size) {
-        this.lastReceivedBytes += size;
-    }
-
-    estimateBitrate() {
-        if (this.previousEstimatedTimestep == 0) {
-            this.previousEstimatedTimestep = performance.now();
-            this.lastBitrate = 0;
-            return;
-        }
-
-        const curTime = performance.now();
-        const elapsed = (curTime - this.previousEstimatedTimestep) / 1000;
-        const newThroughput = this.lastReceivedBytes / elapsed;
-        this.previousEstimatedTimestep = curTime;
-
-        this.lastBitrate = this._ewma(this.lastBitrate, newThroughput);
-        this.lastReceivedBytes = 0;
-    }
-
-    calcFrameTimeDiff(diff) {
-        this.timeBetweenFrame = diff;
-        this.smoothTimeBetweenFrame = this._ewma(this.smoothTimeBetweenFrame, this.timeBetweenFrame);
-    }
-
-    // calcThroughput(size, time) {
-        // this.lastFinishProcessingTime = time;
-        // console.log("Throughput:", size / (time / 1000), size, time);
-    // }
-
-    updateProcessingTime(time) {
-        this.lastFinishProcessingTime = time;
-        if (this.lastFinishProcessingTime * 3.3 < 1 / this.fps * 1000) {
-            this.processingTimeGoodStreak++;
-            // console.log(this.lastFinishProcessingTime);
-        }
-        else {
-            this.processingTimeGoodStreak = 0;
-        }
-    }
-
-    updateChunkCompleteTime(sendTime, compTime) {
-        this.timeoutStreak = 0;
-        if (this.lastSendTimestemp == 0 || this.lastReceiveTimestemp == 0) {
-            this.lastSendTimestemp = sendTime;
-            this.lastReceiveTimestemp = compTime;
-            return;
-        }
-        this.lastLatencyMs = compTime - sendTime;
-
-        const deltaSendTime = sendTime - this.lastSendTimestemp;
-        const deltaRecvTime = compTime - this.lastReceiveTimestemp;
-        const delta = deltaRecvTime - deltaSendTime;
-
-        if (delta > 0) {
+    _updateLatency(latency) {
+        console.log(latency);
+        if (latency > this.lastLatencyMs) {
             this.timeIncreaseStreak++;
-            this.timeDeceraseStreak = 0;
         }
         else {
-            this.timeDeceraseStreak++;
             this.timeIncreaseStreak = 0;
         }
-
-        this.accumulateDelta += delta;
-        this.lastTimeDelta = delta;
-        this.lastSendTimestemp = sendTime;
-        this.lastReceiveTimestemp = compTime;
-    }
-
-    updateWithEstimatedRTT(rtt) {
-        if (rtt > this.downgradeBoundaryMs) {
+        this.accumulateDelta = latency - this.lastLatencyMs;
+        
+        if (latency > this.downgradeBoundaryMs) {
             this.badStreak++;
+            this.goodStreak = 0;
         }
-        else {
+        
+        if (latency < this.upgradeBoundaryMs) {
+            this.goodStreak++;
             this.badStreak = 0;
         }
 
-        if (rtt < this.upgradeBoundaryMs) {
-            this.goodStreak++;
-        }
-        else {
-            this.goodStreak = 0;
-        }
+        this.lastLatencyMs = latency;
     }
 
-    shouldChangeABRLevel() {
+    tryChangeABRLevel() {
         if (this.badStreak > this.downgradeRequiredStreak) {
             this.downgrade();
             this.badStreak = 0;
             this.goodStreak = 0;
             this.timeIncreaseStreak = 0;
+            this.accumulateDelta = 0;
             console.log("Downgrade based on latency");
             return;
         }
@@ -169,6 +121,7 @@ class ThroughputABR {
             this.badStreak = 0;
             this.goodStreak = 0;
             this.timeIncreaseStreak = 0;
+            this.accumulateDelta = 0;
             console.log("Downgrade based on delta");
             return;
         }
@@ -213,9 +166,7 @@ class ThroughputABR {
         this.maxProfile = 3;
         this.profile = 3;
 
-        this.lastReceivedBytes = 0;
         this.lastBitrate = 0;
-        this.previousEstimatedTimestep = 0;
 
         this.goodStreak = 0;
         this.badStreak = 0;
