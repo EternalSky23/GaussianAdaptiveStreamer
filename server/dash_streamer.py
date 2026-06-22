@@ -12,7 +12,7 @@ from models import get_model
 from render import render_image_raw
 from statics import DASH_DIR
 
-FFMPEG = os.environ.get("FFMPEG", "/usr/local/bin/ffmpeg")
+FFMPEG = os.environ.get("FFMPEG", "/usr/bin/ffmpeg")
 
 
 @dataclass

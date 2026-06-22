@@ -11,14 +11,14 @@ python http3_server.py --certificate certificates/ssl_cert.pem --private-key cer
   https://localhost:4433/models-ui
 '''
 
-
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.staticfiles import StaticFiles
 
-
 from statics import STATIC_DIR
 import routes
+
+from wt_extend import wt
 
 starlette = Starlette(
     routes=[
@@ -29,6 +29,8 @@ starlette = Starlette(
         Route("/models", routes.get_list_of_all_available_models, methods=["GET"]), 
         Route("/models-ui", routes.models_page, methods=["GET"]),
         Route("/player", routes.player_page, methods=["GET"]),
+        Route("/player-wt", routes.player_wt_page, methods=["GET"]),
+        Route("/experiment_data", routes.receive_experiment_data, methods=["POST"]),
         Route("/loadModel", routes.load_model, methods=["POST"]),
         Route("/movement", routes.save_movements, methods=["POST"]),
         Route("/saveImages", routes.save_images, methods=["POST"]),
@@ -46,7 +48,10 @@ starlette = Starlette(
 )
 
 # the callable the aioquic server imports
-async def app(scope, receive, send):
-    await starlette(scope, receive, send)
+async def app(scope, receive, send, connection):
+    if scope["type"] == "webtransport" and scope["path"] == "/wt":
+        await wt(scope, receive, send, connection)
+    else:
+        await starlette(scope, receive, send)
     
 

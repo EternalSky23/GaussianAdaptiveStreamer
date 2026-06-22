@@ -9,22 +9,21 @@ Gaussian Adaptive Streamer is a prototype system for adaptive streaming of 3D Ga
 
 ## Directory structure
 
-Create a models directory in the project root and place all models inside it:
+Create a scene directory in the project root and place all scenes inside it:
 
 ```bash
 project_root/
-├── static
-│    └── models/
-│       ├── modelID/
-│       │   ├── modelName.ply
-│       │   └── preview.jpg
-│       └── anotherModelID/
-│           ├── anotherModelName.ply
-│           └── anotherPreview.jpg
+├── scene
+│   ├── sceneID
+│   │   ├── sceneName.ply
+│   │   └── preview.jpg
+│   └── anotherSceneID
+│       ├── anotherSceneName.ply
+│       └── anotherPreview.jpg
 └── requirements.txt
 ```
 
-These models and previews will be loaded automatically when starting the server.
+These scenes and previews will be loaded automatically when starting the server.
 
 ## Installation
 
@@ -72,7 +71,7 @@ python -c "import torch; print('Torch:', torch.__version__); print('CUDA availab
 Start the streaming server:
 
 ```bash
-python http3_server.py --certificate certificates/ssl_cert.pem --private-key certificates/ssl_key.pem
+./run.sh
 ```
 
 Start Google Chrome with flags:
@@ -98,6 +97,7 @@ google-chrome \
 
 **Note:**
 - For trying the experimental version with dash.js as player type instead of /models-ui, go to /player-dash.
+- For WebTransport version player, go to /player-wt instead.
 - Close Google Chrome before running this command.
 
 

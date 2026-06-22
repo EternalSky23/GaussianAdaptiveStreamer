@@ -1,10 +1,5 @@
-static/models/*
 __pycache__
 .vscode
 
 captures
 experiment
-
-run_browser.sh
-baseline_experiment
-fig

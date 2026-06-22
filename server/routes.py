@@ -7,7 +7,7 @@ from render import render_image_raw, save_render_bytes
 from models import get_model, ensure_started
 from concurrent.futures import ThreadPoolExecutor
 from encoding import encode_jpeg, encode_png
-from statics import EXPERIMENTS_DIR, DASH_DIR
+from statics import EXPERIMENTS_DIR, DASH_DIR, PLAYER_DIR
 from dash_streamer import STREAMER
 
 
@@ -19,19 +19,24 @@ from starlette.responses import JSONResponse, FileResponse, Response, PlainTextR
 async def models_page(request: Request):
     logger.info("Get models page.")
     await ensure_started()
-    return FileResponse("templates/models.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "models.html"))
 
 async def player_page(request: Request):
     logger.info("Get jpeg player page.")
     await ensure_started()
-    return FileResponse("templates/player.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "player.html"))
+
+async def player_wt_page(request: Request):
+    logger.info("Get webtransport player page.")
+    await ensure_started()
+    return FileResponse(os.path.join(PLAYER_DIR, "player_wt.html"))
 
 async def player_dash_page(request: Request):
     logger.info("Get dash player page.")
     await ensure_started()
-    p = Path("templates/player_dash.html")
+    p = Path(os.path.join(PLAYER_DIR, "player_dash.html"))
     logger.info("CWD=%s exists=%s abs=%s", os.getcwd(), p.exists(), p.resolve())
-    return FileResponse("templates/player_dash.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "player_dash.html"))
 
 async def get_list_of_all_available_models(request: Request):
     logger.info("Get list of models.")
@@ -566,3 +571,21 @@ async def materialize_sampled_frames(request: Request):
     except Exception as e:
         logger.exception("Failed materializing sampled frames")
         return PlainTextResponse(f"Failed materializing sampled frames: {e}", status_code=500)
+    
+async def receive_experiment_data(request: Request):
+    await ensure_started()
+    try:
+        body = await request.json()
+    except Exception as e:
+        return PlainTextResponse(f"Invalid JSON: {e}", status_code=400)
+
+    name = body.get("expName")
+    fps = body.get("fps")
+    latency = body.get("latency")
+
+    f = Path(EXPERIMENTS_DIR) / name / "experiment_data.ndjson"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with open(f, "a", encoding="utf-8") as out:
+        out.write("{\"fps\": %s,\"latency\": %s}" % (fps, latency))
+        out.write("\n")
+    return JSONResponse({"ok": True}, status_code=200)
