@@ -13,14 +13,13 @@ Create a models directory in the project root and place all models inside it:
 
 ```bash
 project_root/
-├── static
-│    └── models/
-│       ├── modelID/
-│       │   ├── modelName.ply
-│       │   └── preview.jpg
-│       └── anotherModelID/
-│           ├── anotherModelName.ply
-│           └── anotherPreview.jpg
+├── models
+│   ├── modelID
+│   │   ├── modelName.ply
+│   │   └── preview.jpg
+│   └── anotherModelID
+│       ├── anotherModelName.ply
+│       └── anotherPreview.jpg
 └── requirements.txt
 ```
 
@@ -72,7 +71,7 @@ python -c "import torch; print('Torch:', torch.__version__); print('CUDA availab
 Start the streaming server:
 
 ```bash
-python http3_server.py --certificate certificates/ssl_cert.pem --private-key certificates/ssl_key.pem
+./run.sh
 ```
 
 Start Google Chrome with flags:
