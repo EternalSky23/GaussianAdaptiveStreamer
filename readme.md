@@ -9,21 +9,21 @@ Gaussian Adaptive Streamer is a prototype system for adaptive streaming of 3D Ga
 
 ## Directory structure
 
-Create a models directory in the project root and place all models inside it:
+Create a scene directory in the project root and place all scenes inside it:
 
 ```bash
 project_root/
-├── models
-│   ├── modelID
-│   │   ├── modelName.ply
+├── scene
+│   ├── sceneID
+│   │   ├── sceneName.ply
 │   │   └── preview.jpg
-│   └── anotherModelID
-│       ├── anotherModelName.ply
+│   └── anotherSceneID
+│       ├── anotherSceneName.ply
 │       └── anotherPreview.jpg
 └── requirements.txt
 ```
 
-These models and previews will be loaded automatically when starting the server.
+These scenes and previews will be loaded automatically when starting the server.
 
 ## Installation
 
@@ -97,6 +97,7 @@ google-chrome \
 
 **Note:**
 - For trying the experimental version with dash.js as player type instead of /models-ui, go to /player-dash.
+- For WebTransport version player, go to /player-wt instead.
 - Close Google Chrome before running this command.
 
 
