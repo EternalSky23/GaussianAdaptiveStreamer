@@ -7,7 +7,7 @@ from render import render_image_raw, save_render_bytes
 from models import get_model, ensure_started
 from concurrent.futures import ThreadPoolExecutor
 from encoding import encode_jpeg, encode_png
-from statics import EXPERIMENTS_DIR, DASH_DIR
+from statics import EXPERIMENTS_DIR, DASH_DIR, PLAYER_DIR
 from dash_streamer import STREAMER
 
 
@@ -19,24 +19,24 @@ from starlette.responses import JSONResponse, FileResponse, Response, PlainTextR
 async def models_page(request: Request):
     logger.info("Get models page.")
     await ensure_started()
-    return FileResponse("templates/models.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "models.html"))
 
 async def player_page(request: Request):
     logger.info("Get jpeg player page.")
     await ensure_started()
-    return FileResponse("templates/player.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "player.html"))
 
 async def player_wt_page(request: Request):
     logger.info("Get webtransport player page.")
     await ensure_started()
-    return FileResponse("templates/player_wt.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "player_wt.html"))
 
 async def player_dash_page(request: Request):
     logger.info("Get dash player page.")
     await ensure_started()
-    p = Path("templates/player_dash.html")
+    p = Path(os.path.join(PLAYER_DIR, "player_dash.html"))
     logger.info("CWD=%s exists=%s abs=%s", os.getcwd(), p.exists(), p.resolve())
-    return FileResponse("templates/player_dash.html")
+    return FileResponse(os.path.join(PLAYER_DIR, "player_dash.html"))
 
 async def get_list_of_all_available_models(request: Request):
     logger.info("Get list of models.")
